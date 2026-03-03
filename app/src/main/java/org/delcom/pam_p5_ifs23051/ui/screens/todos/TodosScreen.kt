@@ -1,360 +1,248 @@
 package org.delcom.pam_p5_ifs23051.ui.screens.todos
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
-import coil.compose.AsyncImage
-import org.delcom.pam_p5_ifs23051.R
-import org.delcom.pam_p5_ifs23051.helper.ConstHelper
-import org.delcom.pam_p5_ifs23051.helper.RouteHelper
-import org.delcom.pam_p5_ifs23051.helper.ToolsHelper
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoData
-import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
-import org.delcom.pam_p5_ifs23051.ui.components.LoadingUI
-import org.delcom.pam_p5_ifs23051.ui.components.TopAppBarComponent
-import org.delcom.pam_p5_ifs23051.ui.components.TopAppBarMenuItem
-import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthLogoutUIState
-import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthUIState
-import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthViewModel
+import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodosUIState
 
+private const val PER_PAGE = 10
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodosScreen(
-    navController: NavHostController,
-    authViewModel: AuthViewModel,
-    todoViewModel: TodoViewModel
+    authToken: String,
+    todoViewModel: TodoViewModel,
+    onNavigateToAdd: () -> Unit,
+    onNavigateToDetail: (String) -> Unit,
 ) {
-    // Ambil data dari viewmodel
-    val uiStateAuth by authViewModel.uiState.collectAsState()
-    val uiStateTodo by todoViewModel.uiState.collectAsState()
+    val uiState by todoViewModel.uiState.collectAsState()
 
-    var isLoading by remember { mutableStateOf(false) }
-    var searchQuery by remember {
-        mutableStateOf(TextFieldValue(""))
-    }
+    // ── Filter state ──────────────────────────────────────
+    var selectedIsDone by remember { mutableStateOf<Boolean?>(null) }
+    var selectedUrgency by remember { mutableStateOf<String?>(null) }
 
-    // Muat data
-    var todos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
-    var authToken by remember { mutableStateOf<String?>(null) }
+    // ── Pagination state ──────────────────────────────────
+    var currentPage by remember { mutableStateOf(1) }
+    var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
+    var hasNextPage by remember { mutableStateOf(false) }
+    var isLoadingMore by remember { mutableStateOf(false) }
 
-    fun fetchTodosData() {
-        isLoading = true
+    val listState = rememberLazyListState()
 
-        authToken = (uiStateAuth.auth as AuthUIState.Success).data.authToken
-
-        todoViewModel.getAllTodos(authToken ?: "", searchQuery.text)
-    }
-
-    // Picu pengambilan data todos
-    LaunchedEffect(Unit) {
-        isLoading = true
-
-        if (uiStateAuth.auth !is AuthUIState.Success) {
-            RouteHelper.to(
-                navController,
-                ConstHelper.RouteNames.Home.path,
-                true
-            )
-            return@LaunchedEffect
-        }
-
-        fetchTodosData()
-    }
-
-    // Picu ketika terjadi perubahan data todos
-    LaunchedEffect(uiStateTodo.todos) {
-        if (uiStateTodo.todos !is TodosUIState.Loading) {
-            isLoading = false
-
-            todos = if (uiStateTodo.todos is TodosUIState.Success) {
-                (uiStateTodo.todos as TodosUIState.Success).data
-            } else {
-                emptyList()
-            }
-        }
-    }
-
-    fun onLogout(token: String){
-        isLoading = true
-        authViewModel.logout(token)
-    }
-
-    LaunchedEffect(uiStateAuth.authLogout) {
-        if (uiStateAuth.authLogout !is AuthLogoutUIState.Loading) {
-            RouteHelper.to(
-                navController,
-                ConstHelper.RouteNames.AuthLogin.path,
-                true
-            )
-        }
-    }
-
-    // Tampilkan halaman loading
-    if (isLoading) {
-        LoadingUI()
-        return
-    }
-
-    // Menu Top App Bar
-    val menuItems = listOf(
-        TopAppBarMenuItem(
-            text = "Profile",
-            icon = Icons.Filled.Person,
-            route = ConstHelper.RouteNames.Profile.path
-        ),
-        TopAppBarMenuItem(
-            text = "Logout",
-            icon = Icons.AutoMirrored.Filled.Logout,
-            route = null,
-            onClick = {
-                onLogout(authToken ?: "")
-            }
-        )
-    )
-
-    fun onOpen(todoId: String) {
-        RouteHelper.to(
-            navController = navController,
-            destination = "todos/${todoId}"
+    // Helper: load halaman pertama (reset list)
+    fun loadFirstPage() {
+        currentPage = 1
+        allTodos = emptyList()
+        todoViewModel.getAllTodos(
+            authToken = authToken,
+            page = 1,
+            perPage = PER_PAGE,
+            isDone = selectedIsDone,
+            urgency = selectedUrgency
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Top App Bar
-        TopAppBarComponent(
-            navController = navController,
-            title = "Todos",
-            showBackButton = false,
-            customMenuItems = menuItems,
-            withSearch = true,
-            searchQuery = searchQuery,
-            onSearchQueryChange = { query ->
-                searchQuery = query
-            },
-            onSearchAction = {
-                fetchTodosData()
-            }
+    // Helper: load halaman berikutnya (append)
+    fun loadNextPage() {
+        if (!hasNextPage || isLoadingMore) return
+        isLoadingMore = true
+        todoViewModel.getAllTodos(
+            authToken = authToken,
+            page = currentPage + 1,
+            perPage = PER_PAGE,
+            isDone = selectedIsDone,
+            urgency = selectedUrgency
         )
-        // Content
-        Box(
-            modifier = Modifier
-                .weight(1f)
-        ) {
-            TodosUI(
-                todos = todos,
-                onOpen = ::onOpen
-            )
+    }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-            )
-            {
-                // Floating Action Button
-                FloatingActionButton(
-                    onClick = {
-                        RouteHelper.to(
-                            navController,
-                            ConstHelper.RouteNames
-                                .TodosAdd
-                                .path
-                        )
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd) // pojok kanan bawah
-                        .padding(16.dp) // jarak dari tepi
-                    ,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Tambah Tumbuhan"
-                    )
+    // Load pertama kali
+    LaunchedEffect(Unit) { loadFirstPage() }
+
+    // Handle hasil API
+    LaunchedEffect(uiState.todos) {
+        when (val state = uiState.todos) {
+            is TodosUIState.Success -> {
+                if (currentPage == 1) {
+                    allTodos = state.data
+                } else {
+                    allTodos = allTodos + state.data
+                }
+                hasNextPage = state.pagination.hasNextPage
+                if (isLoadingMore) {
+                    currentPage++
+                    isLoadingMore = false
                 }
             }
-        }
-        // Bottom Nav
-        BottomNavComponent(navController = navController)
-    }
-}
-
-@Composable
-fun TodosUI(
-    todos: List<ResponseTodoData>,
-    onOpen: (String) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        items(todos) { todo ->
-            TodoItemUI(
-                todo,
-                onOpen
-            )
+            is TodosUIState.Error -> { isLoadingMore = false }
+            else -> {}
         }
     }
 
-    if (todos.isEmpty()) {
-        Card(
+    // Handle hapus todo — refresh list setelah berhasil
+    LaunchedEffect(uiState.todoDelete) {
+        if (uiState.todoDelete is TodoActionUIState.Success) {
+            loadFirstPage()
+        }
+    }
+
+    // Infinite scroll: deteksi scroll mendekati akhir list
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo }
+            .map { layoutInfo ->
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val totalItems = layoutInfo.totalItemsCount
+                lastVisible >= totalItems - 3
+            }
+            .distinctUntilChanged()
+            .collect { nearEnd ->
+                if (nearEnd && !isLoadingMore && hasNextPage) {
+                    loadNextPage()
+                }
+            }
+    }
+
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = onNavigateToAdd) {
+                Icon(Icons.Default.Add, contentDescription = "Tambah Todo")
+            }
+        }
+    ) { paddingValues ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            shape = MaterialTheme.shapes.medium,
-            elevation = CardDefaults.cardElevation(4.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                .fillMaxSize()
+                .padding(paddingValues)
         ) {
-            Text(
-                text = "Tidak ada data!",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun TodoItemUI(
-    todo: ResponseTodoData,
-    onOpen: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp)
-            .clickable {
-                onOpen(todo.id)
-            },
-        shape = MaterialTheme.shapes.medium,
-        elevation = CardDefaults.cardElevation(4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-
-            AsyncImage(
-                model = ToolsHelper.getTodoImage(todo.id, todo.updatedAt),
-                contentDescription = todo.title,
-                placeholder = painterResource(R.drawable.img_placeholder),
-                error = painterResource(R.drawable.img_placeholder),
-                modifier = Modifier
-                    .size(70.dp)
-                    .clip(MaterialTheme.shapes.medium),
-                contentScale = ContentScale.Crop
+            // ── Filter Row ────────────────────────────────────
+            TodoFilterRow(
+                selectedIsDone = selectedIsDone,
+                selectedUrgency = selectedUrgency,
+                onIsDoneChanged = { newValue ->
+                    selectedIsDone = newValue
+                    loadFirstPage()
+                },
+                onUrgencyChanged = { newValue ->
+                    selectedUrgency = newValue
+                    loadFirstPage()
+                }
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-            ) {
-                Text(
-                    text = todo.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = todo.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (todo.isDone)
-                                MaterialTheme.colorScheme.secondaryContainer
-                            else
-                                MaterialTheme.colorScheme.tertiaryContainer
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = if (todo.isDone) "Selesai" else "Belum Selesai",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (todo.isDone)
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        else
-                            MaterialTheme.colorScheme.onTertiaryContainer
-                    )
+            // ── Daftar Todo ───────────────────────────────────
+            when {
+                uiState.todos is TodosUIState.Loading && allTodos.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                allTodos.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Tidak ada todo.")
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(allTodos) { _, todo ->
+                            TodoItemUI(
+                                todo = todo,
+                                onClick = { onNavigateToDetail(todo.id) },
+                                onDelete = { todoViewModel.deleteTodo(authToken, todo.id) }
+                            )
+                        }
+                        // Loading more indicator
+                        if (isLoadingMore) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-@Preview(showBackground = true, name = "Light Mode")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PreviewTodosUI() {
-//    DelcomTheme {
-//        TodosUI(
-//            todos = DummyData.getTodosData(),
-//            onOpen = {}
-//        )
-//    }
+private fun TodoFilterRow(
+    selectedIsDone: Boolean?,
+    selectedUrgency: String?,
+    onIsDoneChanged: (Boolean?) -> Unit,
+    onUrgencyChanged: (String?) -> Unit
+) {
+    val scrollState = androidx.compose.foundation.rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .horizontalScroll(scrollState),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Filter status
+        FilterChip(
+            selected = selectedIsDone == null,
+            onClick = { onIsDoneChanged(null) },
+            label = { Text("Semua") }
+        )
+        FilterChip(
+            selected = selectedIsDone == false,
+            onClick = { onIsDoneChanged(false) },
+            label = { Text("Belum Selesai") }
+        )
+        FilterChip(
+            selected = selectedIsDone == true,
+            onClick = { onIsDoneChanged(true) },
+            label = { Text("Selesai") }
+        )
+
+        // Separator
+        VerticalDivider(modifier = Modifier.height(28.dp))
+
+        // Filter urgency
+        FilterChip(
+            selected = selectedUrgency == null,
+            onClick = { onUrgencyChanged(null) },
+            label = { Text("Semua Urgensi") }
+        )
+        FilterChip(
+            selected = selectedUrgency == "low",
+            onClick = { onUrgencyChanged(if (selectedUrgency == "low") null else "low") },
+            label = { Text("Rendah") }
+        )
+        FilterChip(
+            selected = selectedUrgency == "medium",
+            onClick = { onUrgencyChanged(if (selectedUrgency == "medium") null else "medium") },
+            label = { Text("Sedang") }
+        )
+        FilterChip(
+            selected = selectedUrgency == "high",
+            onClick = { onUrgencyChanged(if (selectedUrgency == "high") null else "high") },
+            label = { Text("Tinggi") }
+        )
+    }
 }

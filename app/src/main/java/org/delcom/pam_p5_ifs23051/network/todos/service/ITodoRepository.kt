@@ -1,22 +1,22 @@
 package org.delcom.pam_p5_ifs23051.network.todos.service
 
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
 import org.delcom.pam_p5_ifs23051.network.data.ResponseMessage
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestAuthLogin
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestAuthLogout
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestAuthRefreshToken
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestAuthRegister
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestTodo
+import org.delcom.pam_p5_ifs23051.network.todos.data.RequestUserAbout
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestUserChange
 import org.delcom.pam_p5_ifs23051.network.todos.data.RequestUserChangePassword
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseAuthLogin
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseAuthRegister
+import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseStats
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodo
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoAdd
-import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodos
+import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodosPaginated
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseUser
-import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseUserData
 
 interface ITodoRepository {
 
@@ -63,14 +63,27 @@ interface ITodoRepository {
         file: MultipartBody.Part
     ): ResponseMessage<String?>
 
+    suspend fun putUserMeAbout(
+        authToken: String,
+        request: RequestUserAbout
+    ): ResponseMessage<String?>
+
     // ----------------------------------
     // Todos
     // ----------------------------------
 
     suspend fun getTodos(
         authToken: String,
-        search: String? = null
-    ): ResponseMessage<ResponseTodos?>
+        search: String? = null,
+        page: Int = 1,
+        perPage: Int = 10,
+        isDone: Boolean? = null,
+        urgency: String? = null
+    ): ResponseMessage<ResponseTodosPaginated?>
+
+    suspend fun getTodoStats(
+        authToken: String
+    ): ResponseMessage<ResponseStats?>
 
     suspend fun postTodo(
         authToken: String,
