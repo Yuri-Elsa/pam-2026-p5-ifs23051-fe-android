@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -38,7 +37,9 @@ fun HomeScreen(
 ) {
     val uiState by todoViewModel.uiState.collectAsState()
 
-    LaunchedEffect(Unit) {
+    // Gunakan authToken sebagai key agar LaunchedEffect dijalankan ulang
+    // saat token baru tersedia (bukan hanya sekali saat komposisi pertama)
+    LaunchedEffect(authToken) {
         if (authToken.isNotBlank()) {
             todoViewModel.getStats(authToken)
         }
@@ -55,14 +56,12 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Top App Bar ────────────────────────────────────────────────
         TopAppBarComponent(
             navController = navController,
             title = "Home",
             showBackButton = false,
         )
 
-        // ── Body ───────────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -71,7 +70,7 @@ fun HomeScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ── Banner / Header Card ──────────────────────────────────
+            // Banner
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -104,7 +103,6 @@ fun HomeScreen(
                 }
             }
 
-            // ── Stats Section Title ───────────────────────────────────
             Text(
                 text = "Statistik Todo",
                 style = MaterialTheme.typography.titleMedium,
@@ -112,7 +110,6 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            // ── Stat Cards Row ────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -143,7 +140,6 @@ fun HomeScreen(
                 )
             }
 
-            // ── Quick Action ──────────────────────────────────────────
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "Aksi Cepat",
@@ -156,7 +152,6 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Lihat semua todos
                 OutlinedButton(
                     onClick = { RouteHelper.to(navController, ConstHelper.RouteNames.Todos.path, true) },
                     modifier = Modifier.weight(1f),
@@ -164,7 +159,6 @@ fun HomeScreen(
                 ) {
                     Text("Lihat Todos", fontWeight = FontWeight.Medium)
                 }
-                // Tambah todo
                 Button(
                     onClick = { RouteHelper.to(navController, ConstHelper.RouteNames.TodosAdd.path) },
                     modifier = Modifier.weight(1f),
@@ -175,7 +169,6 @@ fun HomeScreen(
             }
         }
 
-        // ── Bottom Nav ─────────────────────────────────────────────────
         BottomNavComponent(navController = navController)
     }
 }

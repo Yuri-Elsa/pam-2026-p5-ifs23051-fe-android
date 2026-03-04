@@ -79,36 +79,30 @@ class TodoViewModel @Inject constructor(
     fun getProfile(authToken: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profile = ProfileUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.getUserMe(authToken)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") ProfileUIState.Success(it.data!!.user)
-                        else ProfileUIState.Error(it.message)
-                    },
-                    onFailure = { ProfileUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(profile = tmpState)
-            }
+            val result = runCatching { repository.getUserMe(authToken) }.fold(
+                onSuccess = {
+                    if (it.status == "success" && it.data != null)
+                        ProfileUIState.Success(it.data.user)
+                    else ProfileUIState.Error(it.message)
+                },
+                onFailure = { ProfileUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(profile = result) }
         }
     }
 
     fun getStats(authToken: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(stats = StatsUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.getTodoStats(authToken)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") StatsUIState.Success(it.data!!.stats)
-                        else StatsUIState.Error(it.message)
-                    },
-                    onFailure = { StatsUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(stats = tmpState)
-            }
+            val result = runCatching { repository.getTodoStats(authToken) }.fold(
+                onSuccess = {
+                    if (it.status == "success" && it.data != null)
+                        StatsUIState.Success(it.data.stats)
+                    else StatsUIState.Error(it.message)
+                },
+                onFailure = { StatsUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(stats = result) }
         }
     }
 
@@ -121,56 +115,52 @@ class TodoViewModel @Inject constructor(
         urgency: String? = null
     ) {
         viewModelScope.launch {
+            // Set loading dulu dalam satu update
             _uiState.update { it.copy(todos = TodosUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.getTodos(authToken, search, page, perPage, isDone, urgency)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success")
-                            TodosUIState.Success(it.data!!.todos, it.data.pagination)
-                        else TodosUIState.Error(it.message)
-                    },
-                    onFailure = { TodosUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todos = tmpState)
-            }
+
+            val result = runCatching {
+                repository.getTodos(authToken, search, page, perPage, isDone, urgency)
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success" && it.data != null)
+                        TodosUIState.Success(it.data.todos, it.data.pagination)
+                    else TodosUIState.Error(it.message)
+                },
+                onFailure = { TodosUIState.Error(it.message ?: "Unknown error") }
+            )
+            // Update hasil dalam satu update atomik
+            _uiState.update { it.copy(todos = result) }
         }
     }
 
     fun postTodo(authToken: String, title: String, description: String, urgency: String = "medium") {
         viewModelScope.launch {
             _uiState.update { it.copy(todoAdd = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.postTodo(authToken, RequestTodo(title, description, urgency = urgency))
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todoAdd = tmpState)
-            }
+            val result = runCatching {
+                repository.postTodo(authToken, RequestTodo(title, description, urgency = urgency))
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(todoAdd = result) }
         }
     }
 
     fun getTodoById(authToken: String, todoId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(todo = TodoUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.getTodoById(authToken, todoId)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoUIState.Success(it.data!!.todo)
-                        else TodoUIState.Error(it.message)
-                    },
-                    onFailure = { TodoUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todo = tmpState)
-            }
+            val result = runCatching { repository.getTodoById(authToken, todoId) }.fold(
+                onSuccess = {
+                    if (it.status == "success" && it.data != null)
+                        TodoUIState.Success(it.data.todo)
+                    else TodoUIState.Error(it.message)
+                },
+                onFailure = { TodoUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(todo = result) }
         }
     }
 
@@ -184,126 +174,106 @@ class TodoViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             _uiState.update { it.copy(todoChange = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putTodo(authToken, todoId, RequestTodo(title, description, isDone, urgency))
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todoChange = tmpState)
-            }
+            val result = runCatching {
+                repository.putTodo(authToken, todoId, RequestTodo(title, description, isDone, urgency))
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(todoChange = result) }
         }
     }
 
     fun putTodoCover(authToken: String, todoId: String, file: MultipartBody.Part) {
         viewModelScope.launch {
             _uiState.update { it.copy(todoChangeCover = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putTodoCover(authToken, todoId, file)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todoChangeCover = tmpState)
-            }
+            val result = runCatching { repository.putTodoCover(authToken, todoId, file) }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(todoChangeCover = result) }
         }
     }
 
     fun deleteTodo(authToken: String, todoId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(todoDelete = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.deleteTodo(authToken, todoId)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(todoDelete = tmpState)
-            }
+            val result = runCatching { repository.deleteTodo(authToken, todoId) }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(todoDelete = result) }
         }
     }
 
     fun updateProfile(authToken: String, name: String, username: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profileUpdate = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putUserMe(authToken, RequestUserChange(name, username))
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(profileUpdate = tmpState)
-            }
+            val result = runCatching {
+                repository.putUserMe(authToken, RequestUserChange(name, username))
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(profileUpdate = result) }
         }
     }
 
     fun updatePassword(authToken: String, password: String, newPassword: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profilePassword = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putUserMePassword(authToken, RequestUserChangePassword(newPassword, password))
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(profilePassword = tmpState)
-            }
+            val result = runCatching {
+                repository.putUserMePassword(authToken, RequestUserChangePassword(newPassword, password))
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(profilePassword = result) }
         }
     }
 
     fun updateAbout(authToken: String, about: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profileAbout = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putUserMeAbout(authToken, RequestUserAbout(about))
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(profileAbout = tmpState)
-            }
+            val result = runCatching {
+                repository.putUserMeAbout(authToken, RequestUserAbout(about))
+            }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(profileAbout = result) }
         }
     }
 
     fun updatePhoto(authToken: String, file: MultipartBody.Part) {
         viewModelScope.launch {
             _uiState.update { it.copy(profilePhoto = TodoActionUIState.Loading) }
-            _uiState.update { it ->
-                val tmpState = runCatching {
-                    repository.putUserMePhoto(authToken, file)
-                }.fold(
-                    onSuccess = {
-                        if (it.status == "success") TodoActionUIState.Success(it.message)
-                        else TodoActionUIState.Error(it.message)
-                    },
-                    onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
-                )
-                it.copy(profilePhoto = tmpState)
-            }
+            val result = runCatching { repository.putUserMePhoto(authToken, file) }.fold(
+                onSuccess = {
+                    if (it.status == "success") TodoActionUIState.Success(it.message)
+                    else TodoActionUIState.Error(it.message)
+                },
+                onFailure = { TodoActionUIState.Error(it.message ?: "Unknown error") }
+            )
+            _uiState.update { it.copy(profilePhoto = result) }
         }
     }
 }

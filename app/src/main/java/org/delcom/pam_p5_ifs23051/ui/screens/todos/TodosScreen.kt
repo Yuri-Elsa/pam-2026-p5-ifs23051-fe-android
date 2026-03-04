@@ -18,8 +18,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import org.delcom.pam_p5_ifs23051.helper.ConstHelper
-import org.delcom.pam_p5_ifs23051.helper.RouteHelper
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoData
 import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
 import org.delcom.pam_p5_ifs23051.ui.components.TopAppBarComponent
@@ -38,21 +36,31 @@ fun TodosScreen(
     onNavigateToAdd: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
 ) {
+    // Guard: jangan render apapun kalau token belum siap
+    if (authToken.isBlank()) return
+
     val uiState by todoViewModel.uiState.collectAsState()
 
     var selectedIsDone by remember { mutableStateOf<Boolean?>(null) }
     var selectedUrgency by remember { mutableStateOf<String?>(null) }
 
+    // Gunakan satu sumber kebenaran untuk semua pagination state
     var currentPage by remember { mutableStateOf(1) }
     var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
     var hasNextPage by remember { mutableStateOf(false) }
+    // isLoadingMore diproteksi agar tidak bisa false sebelum data benar-benar tiba
     var isLoadingMore by remember { mutableStateOf(false) }
+    // Flag untuk membedakan load pertama vs load lebih
+    var isFirstLoad by remember { mutableStateOf(true) }
 
     val listState = rememberLazyListState()
 
     fun loadFirstPage() {
         currentPage = 1
         allTodos = emptyList()
+        hasNextPage = false
+        isLoadingMore = false
+        isFirstLoad = true
         todoViewModel.getAllTodos(
             authToken = authToken,
             page = 1,
@@ -74,39 +82,49 @@ fun TodosScreen(
         )
     }
 
-    LaunchedEffect(Unit) { loadFirstPage() }
+    // Load pertama kali — tunggu token tersedia
+    LaunchedEffect(authToken) {
+        loadFirstPage()
+    }
 
+    // Proses perubahan state todos
     LaunchedEffect(uiState.todos) {
         when (val state = uiState.todos) {
             is TodosUIState.Success -> {
-                if (currentPage == 1) {
+                if (isFirstLoad) {
+                    // Halaman pertama: ganti seluruh list
                     allTodos = state.data
+                    isFirstLoad = false
                 } else {
+                    // Halaman berikutnya: append
                     allTodos = allTodos + state.data
+                    currentPage++
                 }
                 hasNextPage = state.pagination.hasNextPage
-                if (isLoadingMore) {
-                    currentPage++
-                    isLoadingMore = false
-                }
+                isLoadingMore = false
             }
-            is TodosUIState.Error -> { isLoadingMore = false }
-            else -> {}
+            is TodosUIState.Error -> {
+                isLoadingMore = false
+                isFirstLoad = false
+            }
+            is TodosUIState.Loading -> { /* ditangani oleh flag isFirstLoad */ }
         }
     }
 
+    // Reload setelah delete berhasil
     LaunchedEffect(uiState.todoDelete) {
         if (uiState.todoDelete is TodoActionUIState.Success) {
             loadFirstPage()
         }
     }
 
+    // Infinite scroll trigger
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->
                 val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
                 val totalItems = layoutInfo.totalItemsCount
-                lastVisible >= totalItems - 3
+                totalItems > 0 && lastVisible >= totalItems - 3
             }
             .distinctUntilChanged()
             .collect { nearEnd ->
@@ -121,14 +139,12 @@ fun TodosScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Top App Bar ────────────────────────────────────────────────
         TopAppBarComponent(
             navController = navController,
             title = "Todos",
             showBackButton = false,
         )
 
-        // ── Body ───────────────────────────────────────────────────────
         Box(modifier = Modifier.weight(1f)) {
             Scaffold(
                 floatingActionButton = {
@@ -143,7 +159,6 @@ fun TodosScreen(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
-                    // ── Filter Row ────────────────────────────────────────
                     TodoFilterRow(
                         selectedIsDone = selectedIsDone,
                         selectedUrgency = selectedUrgency,
@@ -157,9 +172,9 @@ fun TodosScreen(
                         }
                     )
 
-                    // ── Daftar Todo ───────────────────────────────────────
                     when {
-                        uiState.todos is TodosUIState.Loading && allTodos.isEmpty() -> {
+                        // Tampilkan loading spinner hanya saat load pertama & list masih kosong
+                        isFirstLoad && uiState.todos is TodosUIState.Loading -> {
                             Box(
                                 Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
@@ -182,7 +197,10 @@ fun TodosScreen(
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                itemsIndexed(allTodos) { _, todo ->
+                                itemsIndexed(
+                                    items = allTodos,
+                                    key = { _, todo -> todo.id }
+                                ) { _, todo ->
                                     TodoItemUI(
                                         todo = todo,
                                         onClick = { onNavigateToDetail(todo.id) },
@@ -199,9 +217,7 @@ fun TodosScreen(
                                                 .padding(12.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(24.dp)
-                                            )
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
                                         }
                                     }
                                 }
@@ -212,7 +228,6 @@ fun TodosScreen(
             }
         }
 
-        // ── Bottom Nav ─────────────────────────────────────────────────
         BottomNavComponent(navController = navController)
     }
 }
@@ -233,7 +248,6 @@ private fun TodoFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Filter status
         FilterChip(
             selected = selectedIsDone == null,
             onClick = { onIsDoneChanged(null) },
@@ -252,7 +266,6 @@ private fun TodoFilterRow(
 
         VerticalDivider(modifier = Modifier.height(28.dp))
 
-        // Filter urgency
         FilterChip(
             selected = selectedUrgency == null,
             onClick = { onUrgencyChanged(null) },
