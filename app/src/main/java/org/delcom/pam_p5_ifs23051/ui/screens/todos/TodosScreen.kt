@@ -1,5 +1,6 @@
 package org.delcom.pam_p5_ifs23051.ui.screens.todos
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -15,7 +16,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.rememberNavController
+import org.delcom.pam_p5_ifs23051.helper.ConstHelper
+import org.delcom.pam_p5_ifs23051.helper.RouteHelper
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoData
+import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
+import org.delcom.pam_p5_ifs23051.ui.components.TopAppBarComponent
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodosUIState
@@ -25,6 +32,7 @@ private const val PER_PAGE = 10
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodosScreen(
+    navController: NavHostController = rememberNavController(),
     authToken: String,
     todoViewModel: TodoViewModel,
     onNavigateToAdd: () -> Unit,
@@ -32,11 +40,9 @@ fun TodosScreen(
 ) {
     val uiState by todoViewModel.uiState.collectAsState()
 
-    // ── Filter state ──────────────────────────────────────
     var selectedIsDone by remember { mutableStateOf<Boolean?>(null) }
     var selectedUrgency by remember { mutableStateOf<String?>(null) }
 
-    // ── Pagination state ──────────────────────────────────
     var currentPage by remember { mutableStateOf(1) }
     var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
     var hasNextPage by remember { mutableStateOf(false) }
@@ -44,7 +50,6 @@ fun TodosScreen(
 
     val listState = rememberLazyListState()
 
-    // Helper: load halaman pertama (reset list)
     fun loadFirstPage() {
         currentPage = 1
         allTodos = emptyList()
@@ -57,7 +62,6 @@ fun TodosScreen(
         )
     }
 
-    // Helper: load halaman berikutnya (append)
     fun loadNextPage() {
         if (!hasNextPage || isLoadingMore) return
         isLoadingMore = true
@@ -70,10 +74,8 @@ fun TodosScreen(
         )
     }
 
-    // Load pertama kali
     LaunchedEffect(Unit) { loadFirstPage() }
 
-    // Handle hasil API
     LaunchedEffect(uiState.todos) {
         when (val state = uiState.todos) {
             is TodosUIState.Success -> {
@@ -93,14 +95,12 @@ fun TodosScreen(
         }
     }
 
-    // Handle hapus todo — refresh list setelah berhasil
     LaunchedEffect(uiState.todoDelete) {
         if (uiState.todoDelete is TodoActionUIState.Success) {
             loadFirstPage()
         }
     }
 
-    // Infinite scroll: deteksi scroll mendekati akhir list
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->
@@ -116,66 +116,94 @@ fun TodosScreen(
             }
     }
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = onNavigateToAdd) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah Todo")
-            }
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // ── Filter Row ────────────────────────────────────
-            TodoFilterRow(
-                selectedIsDone = selectedIsDone,
-                selectedUrgency = selectedUrgency,
-                onIsDoneChanged = { newValue ->
-                    selectedIsDone = newValue
-                    loadFirstPage()
-                },
-                onUrgencyChanged = { newValue ->
-                    selectedUrgency = newValue
-                    loadFirstPage()
-                }
-            )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // ── Top App Bar ────────────────────────────────────────────────
+        TopAppBarComponent(
+            navController = navController,
+            title = "Todos",
+            showBackButton = false,
+        )
 
-            // ── Daftar Todo ───────────────────────────────────
-            when {
-                uiState.todos is TodosUIState.Loading && allTodos.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+        // ── Body ───────────────────────────────────────────────────────
+        Box(modifier = Modifier.weight(1f)) {
+            Scaffold(
+                floatingActionButton = {
+                    FloatingActionButton(onClick = onNavigateToAdd) {
+                        Icon(Icons.Default.Add, contentDescription = "Tambah Todo")
                     }
-                }
-                allTodos.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Tidak ada todo.")
-                    }
-                }
-                else -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        itemsIndexed(allTodos) { _, todo ->
-                            TodoItemUI(
-                                todo = todo,
-                                onClick = { onNavigateToDetail(todo.id) },
-                                onDelete = { todoViewModel.deleteTodo(authToken, todo.id) }
-                            )
+                },
+                containerColor = MaterialTheme.colorScheme.background
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    // ── Filter Row ────────────────────────────────────────
+                    TodoFilterRow(
+                        selectedIsDone = selectedIsDone,
+                        selectedUrgency = selectedUrgency,
+                        onIsDoneChanged = { newValue ->
+                            selectedIsDone = newValue
+                            loadFirstPage()
+                        },
+                        onUrgencyChanged = { newValue ->
+                            selectedUrgency = newValue
+                            loadFirstPage()
                         }
-                        // Loading more indicator
-                        if (isLoadingMore) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    )
+
+                    // ── Daftar Todo ───────────────────────────────────────
+                    when {
+                        uiState.todos is TodosUIState.Loading && allTodos.isEmpty() -> {
+                            Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                        allTodos.isEmpty() -> {
+                            Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Tidak ada todo.")
+                            }
+                        }
+                        else -> {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                itemsIndexed(allTodos) { _, todo ->
+                                    TodoItemUI(
+                                        todo = todo,
+                                        onClick = { onNavigateToDetail(todo.id) },
+                                        onDelete = {
+                                            todoViewModel.deleteTodo(authToken, todo.id)
+                                        }
+                                    )
+                                }
+                                if (isLoadingMore) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -183,6 +211,9 @@ fun TodosScreen(
                 }
             }
         }
+
+        // ── Bottom Nav ─────────────────────────────────────────────────
+        BottomNavComponent(navController = navController)
     }
 }
 
@@ -194,12 +225,11 @@ private fun TodoFilterRow(
     onIsDoneChanged: (Boolean?) -> Unit,
     onUrgencyChanged: (String?) -> Unit
 ) {
-    val scrollState = androidx.compose.foundation.rememberScrollState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .horizontalScroll(scrollState),
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -220,7 +250,6 @@ private fun TodoFilterRow(
             label = { Text("Selesai") }
         )
 
-        // Separator
         VerticalDivider(modifier = Modifier.height(28.dp))
 
         // Filter urgency

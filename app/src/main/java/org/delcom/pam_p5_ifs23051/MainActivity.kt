@@ -20,6 +20,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // ✅ FIX: Load token dari SharedPreferences saat app pertama kali dibuka
+        // Ini memastikan authToken tersedia sebelum screen apapun dirender
+        authViewModel.loadTokenFromPreferences()
+
         setContent {
             DelcomTheme {
                 UIApp(
