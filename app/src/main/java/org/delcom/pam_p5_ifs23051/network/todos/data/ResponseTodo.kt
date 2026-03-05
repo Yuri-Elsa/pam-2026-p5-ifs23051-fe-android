@@ -10,7 +10,7 @@ data class ResponseTodos(
 @Serializable
 data class ResponseTodosPaginated(
     val todos: List<ResponseTodoData>,
-    val pagination: ResponsePagination
+    val pagination: ResponsePagination? = null   // FIX: nullable to prevent NPE from Gson
 )
 
 @Serializable

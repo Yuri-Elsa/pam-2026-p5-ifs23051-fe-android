@@ -54,12 +54,21 @@ sealed interface TodoActionUIState {
     object Idle : TodoActionUIState
 }
 
+// Separate sealed interface for Home screen todos to avoid shared state race condition
+sealed interface HomeTodosUIState {
+    data class Success(
+        val data: List<ResponseTodoData>,
+        val pagination: ResponsePagination
+    ) : HomeTodosUIState
+    data class Error(val message: String) : HomeTodosUIState
+    object Loading : HomeTodosUIState
+}
+
 data class UIStateTodo(
     val profile: ProfileUIState = ProfileUIState.Loading,
     val stats: StatsUIState = StatsUIState.Loading,
     val todos: TodosUIState = TodosUIState.Loading,
     var todo: TodoUIState = TodoUIState.Loading,
-    // Gunakan Idle sebagai default agar LaunchedEffect tidak trigger saat pertama komposisi
     var todoAdd: TodoActionUIState = TodoActionUIState.Idle,
     var todoChange: TodoActionUIState = TodoActionUIState.Idle,
     var todoDelete: TodoActionUIState = TodoActionUIState.Idle,
@@ -77,6 +86,37 @@ class TodoViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(UIStateTodo())
     val uiState = _uiState.asStateFlow()
+
+    // Dedicated state for HomeScreen - isolated from uiState to prevent race condition
+    private val _homeTodosState = MutableStateFlow<HomeTodosUIState>(HomeTodosUIState.Loading)
+    val homeTodosState = _homeTodosState.asStateFlow()
+
+    fun getHomeTodos(authToken: String, page: Int = 1, perPage: Int = 10) {
+        viewModelScope.launch {
+            _homeTodosState.value = HomeTodosUIState.Loading
+            val result = runCatching {
+                repository.getTodos(authToken, null, page, perPage, null, null)
+            }.fold(
+                onSuccess = { response ->
+                    if (response.status == "success" && response.data != null) {
+                        val pagination = response.data.pagination ?: ResponsePagination(
+                            currentPage = page,
+                            perPage = perPage,
+                            total = response.data.todos.size.toLong(),
+                            totalPages = 1,
+                            hasNextPage = false,
+                            hasPrevPage = false
+                        )
+                        HomeTodosUIState.Success(response.data.todos, pagination)
+                    } else {
+                        HomeTodosUIState.Error(response.message)
+                    }
+                },
+                onFailure = { HomeTodosUIState.Error(it.message ?: "Unknown error") }
+            )
+            _homeTodosState.value = result
+        }
+    }
 
     fun getProfile(authToken: String) {
         viewModelScope.launch {
@@ -121,10 +161,21 @@ class TodoViewModel @Inject constructor(
             val result = runCatching {
                 repository.getTodos(authToken, search, page, perPage, isDone, urgency)
             }.fold(
-                onSuccess = {
-                    if (it.status == "success" && it.data != null)
-                        TodosUIState.Success(it.data.todos, it.data.pagination)
-                    else TodosUIState.Error(it.message)
+                onSuccess = { response ->
+                    if (response.status == "success" && response.data != null) {
+                        // FIX: provide a safe fallback pagination in case it's null
+                        val pagination = response.data.pagination ?: ResponsePagination(
+                            currentPage = page,
+                            perPage = perPage,
+                            total = response.data.todos.size.toLong(),
+                            totalPages = 1,
+                            hasNextPage = false,
+                            hasPrevPage = false
+                        )
+                        TodosUIState.Success(response.data.todos, pagination)
+                    } else {
+                        TodosUIState.Error(response.message)
+                    }
                 },
                 onFailure = { TodosUIState.Error(it.message ?: "Unknown error") }
             )
@@ -136,7 +187,8 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(todoAdd = TodoActionUIState.Loading) }
             val result = runCatching {
-                repository.postTodo(authToken, RequestTodo(title, description, urgency = urgency))
+                // FIX: correct argument order — isDone defaults to false
+                repository.postTodo(authToken, RequestTodo(title, description, false, urgency))
             }.fold(
                 onSuccess = {
                     if (it.status == "success") TodoActionUIState.Success(it.message)
@@ -148,7 +200,6 @@ class TodoViewModel @Inject constructor(
         }
     }
 
-    // Reset todoAdd ke Idle setelah TodosScreen selesai memproses event Success
     fun resetTodoAddState() {
         _uiState.update { it.copy(todoAdd = TodoActionUIState.Idle) }
     }
@@ -219,7 +270,6 @@ class TodoViewModel @Inject constructor(
         }
     }
 
-    // Reset todoDelete ke Idle setelah diproses
     fun resetTodoDeleteState() {
         _uiState.update { it.copy(todoDelete = TodoActionUIState.Idle) }
     }

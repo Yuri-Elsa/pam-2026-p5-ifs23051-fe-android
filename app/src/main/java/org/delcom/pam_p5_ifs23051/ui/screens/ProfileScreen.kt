@@ -2,6 +2,7 @@ package org.delcom.pam_p5_ifs23051.ui.screens.profile
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
@@ -56,45 +58,41 @@ fun ProfileScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Gunakan timestamp untuk force-reload foto profil setelah upload berhasil
     var photoTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
+    // Sheet / dialog visibility
     var showEditSheet by remember { mutableStateOf(false) }
     var showPasswordSheet by remember { mutableStateOf(false) }
     var showAboutSheet by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
+    // Photo picker — uses PickVisualMedia (same pattern as todo cover)
+    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var showPhotoConfirmDialog by remember { mutableStateOf(false) }
+
     val profile = (uiState.profile as? ProfileUIState.Success)?.data
 
-    // Image picker untuk foto profil
     val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let {
-            val inputStream = context.contentResolver.openInputStream(it)
-            val ext = context.contentResolver.getType(it)?.substringAfterLast('/') ?: "jpg"
-            val tempFile = File.createTempFile("photo_", ".$ext", context.cacheDir).apply {
-                outputStream().use { out -> inputStream?.copyTo(out) }
-            }
-            val requestFile = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
-            val part = MultipartBody.Part.createFormData("file", tempFile.name, requestFile)
-            todoViewModel.updatePhoto(authToken, part)
+            pendingPhotoUri = it
+            showPhotoConfirmDialog = true
         }
     }
 
-    // Handle hasil update foto - PERBAIKAN: reset state setelah diproses
+    // Handle photo upload result
     LaunchedEffect(uiState.profilePhoto) {
         when (val state = uiState.profilePhoto) {
             is TodoActionUIState.Success -> {
                 photoTimestamp = System.currentTimeMillis()
+                pendingPhotoUri = null
                 snackbarHostState.showSnackbar("success|Foto profil berhasil diperbarui")
                 todoViewModel.getProfile(authToken)
-                // Reset state agar tidak trigger ulang
                 todoViewModel.resetProfilePhotoState()
             }
             is TodoActionUIState.Error -> {
                 snackbarHostState.showSnackbar("error|${state.message}")
-                // Reset state agar tidak trigger ulang
                 todoViewModel.resetProfilePhotoState()
             }
             else -> {}
@@ -103,16 +101,12 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) { todoViewModel.getProfile(authToken) }
 
-    // Handle hasil logout
+    // Handle logout result — only navigate when logout was explicitly triggered
+    var logoutTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(uiStateAuth.authLogout) {
+        if (!logoutTriggered) return@LaunchedEffect
         when (uiStateAuth.authLogout) {
-            is AuthLogoutUIState.Success -> {
-                RouteHelper.to(
-                    navController,
-                    ConstHelper.RouteNames.AuthLogin.path,
-                    removeBackStack = true
-                )
-            }
+            is AuthLogoutUIState.Success,
             is AuthLogoutUIState.Error -> {
                 RouteHelper.to(
                     navController,
@@ -133,6 +127,7 @@ fun ProfileScreen(
             navController = navController,
             title = "Profile",
             showBackButton = false,
+            showMenu = false,   // No menu — actions are inline buttons below
         )
 
         Box(modifier = Modifier.weight(1f)) {
@@ -146,43 +141,68 @@ fun ProfileScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // Foto Profil
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    AsyncImage(
-                        model = if (profile?.id != null)
-                            "${BASE_URL}images/users/${profile.id}?t=$photoTimestamp"
-                        else null,
-                        contentDescription = "Foto Profil",
+                // ── Profile photo with camera overlay (same pattern as todo cover) ──
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        contentAlignment = Alignment.BottomEnd,
                         modifier = Modifier
                             .size(100.dp)
-                            .clip(CircleShape)
-                            .clickable { imagePicker.launch("image/*") },
-                        contentScale = ContentScale.Crop
-                    )
-                    // Tampilkan loading indicator saat upload foto
-                    if (uiState.profilePhoto is TodoActionUIState.Loading) {
-                        CircularProgressIndicator(
+                            .clickable {
+                                imagePicker.launch(
+                                    PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            }
+                    ) {
+                        // Avatar image
+                        AsyncImage(
+                            model = if (profile?.id != null)
+                                "${BASE_URL}images/users/${profile.id}?t=$photoTimestamp"
+                            else null,
+                            contentDescription = "Foto Profil",
                             modifier = Modifier
                                 .size(100.dp)
                                 .clip(CircleShape),
-                            strokeWidth = 3.dp
+                            contentScale = ContentScale.Crop
                         )
+
+                        // Camera badge (bottom-end)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "Ganti Foto",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                        }
                     }
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "Ganti Foto",
-                            modifier = Modifier.padding(5.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary
+
+                    // Upload progress overlay
+                    if (uiState.profilePhoto is TodoActionUIState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(108.dp),
+                            strokeWidth = 3.dp
                         )
                     }
                 }
 
-                // Info User
+                // Preview new photo + Simpan button (same pattern as todo cover)
+                if (pendingPhotoUri != null) {
+                    Text(
+                        "Foto baru dipilih",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // ── User info ──────────────────────────────────────────────
                 if (profile != null) {
                     Text(
                         profile.name,
@@ -198,11 +218,28 @@ fun ProfileScreen(
                     CircularProgressIndicator()
                 }
 
-                // Tentang
+                // ── About card ─────────────────────────────────────────────
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Tentang", style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Tentang", style = MaterialTheme.typography.labelLarge)
+                            IconButton(
+                                onClick = { showAboutSheet = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit Tentang",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
                         Text(
                             text = profile?.about?.takeIf { it.isNotBlank() }
                                 ?: "Belum ada informasi tentang kamu.",
@@ -216,20 +253,16 @@ fun ProfileScreen(
 
                 HorizontalDivider()
 
+                // ── Action buttons ─────────────────────────────────────────
                 OutlinedButton(
                     onClick = { showEditSheet = true },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Edit Profil") }
+                ) { Text("Edit Profil (Nama & Username)") }
 
                 OutlinedButton(
                     onClick = { showPasswordSheet = true },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Ubah Kata Sandi") }
-
-                OutlinedButton(
-                    onClick = { showAboutSheet = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Edit Tentang") }
 
                 HorizontalDivider()
 
@@ -262,19 +295,51 @@ fun ProfileScreen(
         BottomNavComponent(navController = navController)
     }
 
-    // Dialog Konfirmasi Logout
+    // ── Photo confirm dialog (matches todo cover flow) ─────────────────────
+    BottomDialog(
+        show = showPhotoConfirmDialog,
+        onDismiss = {
+            showPhotoConfirmDialog = false
+            pendingPhotoUri = null
+        },
+        title = "Ganti Foto Profil",
+        message = "Apakah kamu yakin ingin mengganti foto profil?",
+        confirmText = "Ya, Simpan",
+        onConfirm = {
+            pendingPhotoUri?.let { uri ->
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val ext = context.contentResolver.getType(uri)
+                    ?.substringAfterLast('/') ?: "jpg"
+                val tempFile = File.createTempFile("photo_", ".$ext", context.cacheDir).apply {
+                    outputStream().use { out -> inputStream?.copyTo(out) }
+                }
+                val requestFile = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
+                val part = MultipartBody.Part.createFormData("file", tempFile.name, requestFile)
+                todoViewModel.updatePhoto(authToken, part)
+            }
+            showPhotoConfirmDialog = false
+        },
+        cancelText = "Batal",
+        type = BottomDialogType.INFO
+    )
+
+    // ── Logout confirm dialog ──────────────────────────────────────────────
     BottomDialog(
         show = showLogoutDialog,
         onDismiss = { showLogoutDialog = false },
         title = "Keluar dari Akun",
         message = "Apakah kamu yakin ingin keluar dari akun ini?",
         confirmText = "Ya, Keluar",
-        onConfirm = { authViewModel.logout(authToken) },
+        onConfirm = {
+            logoutTriggered = true
+            authViewModel.logout(authToken)
+        },
         cancelText = "Batal",
         type = BottomDialogType.ERROR,
         destructiveAction = true
     )
 
+    // ── Edit profile sheet ─────────────────────────────────────────────────
     if (showEditSheet) {
         EditProfileSheet(
             currentName = profile?.name ?: "",
@@ -291,6 +356,7 @@ fun ProfileScreen(
         )
     }
 
+    // ── Change password sheet ──────────────────────────────────────────────
     if (showPasswordSheet) {
         ChangePasswordSheet(
             onDismiss = { showPasswordSheet = false },
@@ -300,6 +366,7 @@ fun ProfileScreen(
         )
     }
 
+    // ── Edit about sheet ───────────────────────────────────────────────────
     if (showAboutSheet) {
         EditAboutSheet(
             currentAbout = profile?.about ?: "",
@@ -313,6 +380,10 @@ fun ProfileScreen(
         )
     }
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Bottom sheets
+// ──────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -343,7 +414,7 @@ private fun EditProfileSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Edit Profil", style = MaterialTheme.typography.titleMedium)
+            Text("Edit Profil", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -386,7 +457,9 @@ private fun ChangePasswordSheet(
     LaunchedEffect(uiState) {
         when (uiState) {
             is TodoActionUIState.Success -> onSuccess()
-            is TodoActionUIState.Error -> snackbarHostState.showSnackbar(uiState.message)
+            is TodoActionUIState.Error -> {
+                snackbarHostState.showSnackbar(uiState.message)
+            }
             else -> {}
         }
     }
@@ -398,7 +471,7 @@ private fun ChangePasswordSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Ubah Kata Sandi", style = MaterialTheme.typography.titleMedium)
+            Text("Ubah Kata Sandi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = oldPassword,
                 onValueChange = { oldPassword = it },
@@ -475,7 +548,7 @@ private fun EditAboutSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Edit Tentang", style = MaterialTheme.typography.titleMedium)
+            Text("Edit Tentang", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = about,
                 onValueChange = { about = it },
