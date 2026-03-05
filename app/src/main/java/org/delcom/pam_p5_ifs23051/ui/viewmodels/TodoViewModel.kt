@@ -51,6 +51,7 @@ sealed interface TodoActionUIState {
     data class Success(val message: String) : TodoActionUIState
     data class Error(val message: String) : TodoActionUIState
     object Loading : TodoActionUIState
+    object Idle : TodoActionUIState
 }
 
 data class UIStateTodo(
@@ -58,14 +59,15 @@ data class UIStateTodo(
     val stats: StatsUIState = StatsUIState.Loading,
     val todos: TodosUIState = TodosUIState.Loading,
     var todo: TodoUIState = TodoUIState.Loading,
-    var todoAdd: TodoActionUIState = TodoActionUIState.Loading,
-    var todoChange: TodoActionUIState = TodoActionUIState.Loading,
-    var todoDelete: TodoActionUIState = TodoActionUIState.Loading,
+    // Gunakan Idle sebagai default agar LaunchedEffect tidak trigger saat pertama komposisi
+    var todoAdd: TodoActionUIState = TodoActionUIState.Idle,
+    var todoChange: TodoActionUIState = TodoActionUIState.Idle,
+    var todoDelete: TodoActionUIState = TodoActionUIState.Idle,
     var todoChangeCover: TodoActionUIState = TodoActionUIState.Loading,
     var profileUpdate: TodoActionUIState = TodoActionUIState.Loading,
     var profilePassword: TodoActionUIState = TodoActionUIState.Loading,
     var profileAbout: TodoActionUIState = TodoActionUIState.Loading,
-    var profilePhoto: TodoActionUIState = TodoActionUIState.Loading,
+    var profilePhoto: TodoActionUIState = TodoActionUIState.Idle,
 )
 
 @HiltViewModel
@@ -115,9 +117,7 @@ class TodoViewModel @Inject constructor(
         urgency: String? = null
     ) {
         viewModelScope.launch {
-            // Set loading dulu dalam satu update
             _uiState.update { it.copy(todos = TodosUIState.Loading) }
-
             val result = runCatching {
                 repository.getTodos(authToken, search, page, perPage, isDone, urgency)
             }.fold(
@@ -128,7 +128,6 @@ class TodoViewModel @Inject constructor(
                 },
                 onFailure = { TodosUIState.Error(it.message ?: "Unknown error") }
             )
-            // Update hasil dalam satu update atomik
             _uiState.update { it.copy(todos = result) }
         }
     }
@@ -147,6 +146,11 @@ class TodoViewModel @Inject constructor(
             )
             _uiState.update { it.copy(todoAdd = result) }
         }
+    }
+
+    // Reset todoAdd ke Idle setelah TodosScreen selesai memproses event Success
+    fun resetTodoAddState() {
+        _uiState.update { it.copy(todoAdd = TodoActionUIState.Idle) }
     }
 
     fun getTodoById(authToken: String, todoId: String) {
@@ -215,6 +219,11 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    // Reset todoDelete ke Idle setelah diproses
+    fun resetTodoDeleteState() {
+        _uiState.update { it.copy(todoDelete = TodoActionUIState.Idle) }
+    }
+
     fun updateProfile(authToken: String, name: String, username: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profileUpdate = TodoActionUIState.Loading) }
@@ -275,5 +284,9 @@ class TodoViewModel @Inject constructor(
             )
             _uiState.update { it.copy(profilePhoto = result) }
         }
+    }
+
+    fun resetProfilePhotoState() {
+        _uiState.update { it.copy(profilePhoto = TodoActionUIState.Idle) }
     }
 }

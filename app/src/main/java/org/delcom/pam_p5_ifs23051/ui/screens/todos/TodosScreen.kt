@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoData
 import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
@@ -36,67 +37,75 @@ fun TodosScreen(
     onNavigateToAdd: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
 ) {
-    // Guard: jangan render apapun kalau token belum siap
     if (authToken.isBlank()) return
 
     val uiState by todoViewModel.uiState.collectAsState()
 
+    // Observasi current backstack entry untuk menangkap sinyal dari layar child
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+
     var selectedIsDone by remember { mutableStateOf<Boolean?>(null) }
     var selectedUrgency by remember { mutableStateOf<String?>(null) }
 
-    // Gunakan satu sumber kebenaran untuk semua pagination state
     var currentPage by remember { mutableStateOf(1) }
     var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
     var hasNextPage by remember { mutableStateOf(false) }
-    // isLoadingMore diproteksi agar tidak bisa false sebelum data benar-benar tiba
     var isLoadingMore by remember { mutableStateOf(false) }
-    // Flag untuk membedakan load pertama vs load lebih
     var isFirstLoad by remember { mutableStateOf(true) }
 
     val listState = rememberLazyListState()
 
-    fun loadFirstPage() {
+    fun loadPage(page: Int, isDone: Boolean?, urgency: String?) {
+        todoViewModel.getAllTodos(
+            authToken = authToken,
+            page = page,
+            perPage = PER_PAGE,
+            isDone = isDone,
+            urgency = urgency
+        )
+    }
+
+    fun resetAndLoad(isDone: Boolean? = selectedIsDone, urgency: String? = selectedUrgency) {
         currentPage = 1
         allTodos = emptyList()
         hasNextPage = false
         isLoadingMore = false
         isFirstLoad = true
-        todoViewModel.getAllTodos(
-            authToken = authToken,
-            page = 1,
-            perPage = PER_PAGE,
-            isDone = selectedIsDone,
-            urgency = selectedUrgency
-        )
+        loadPage(1, isDone, urgency)
     }
 
-    fun loadNextPage() {
-        if (!hasNextPage || isLoadingMore) return
-        isLoadingMore = true
-        todoViewModel.getAllTodos(
-            authToken = authToken,
-            page = currentPage + 1,
-            perPage = PER_PAGE,
-            isDone = selectedIsDone,
-            urgency = selectedUrgency
-        )
-    }
-
-    // Load pertama kali — tunggu token tersedia
+    // Load pertama kali
     LaunchedEffect(authToken) {
-        loadFirstPage()
+        resetAndLoad()
     }
 
-    // Proses perubahan state todos
+    // Tangkap sinyal "todo_added" dari TodosAddScreen via savedStateHandle
+    // navBackStackEntry berubah setiap kali user kembali ke screen ini
+    LaunchedEffect(navBackStackEntry) {
+        val savedStateHandle = navBackStackEntry?.savedStateHandle
+        val todoAdded = savedStateHandle?.get<Boolean>("todo_added") ?: false
+        if (todoAdded) {
+            savedStateHandle?.remove<Boolean>("todo_added") // hapus agar tidak trigger ulang
+            resetAndLoad()
+        }
+    }
+
+    // Reload setelah delete berhasil
+    LaunchedEffect(uiState.todoDelete) {
+        if (uiState.todoDelete is TodoActionUIState.Success) {
+            todoViewModel.resetTodoDeleteState()
+            resetAndLoad()
+        }
+    }
+
+    // Proses hasil todos
     LaunchedEffect(uiState.todos) {
         when (val state = uiState.todos) {
             is TodosUIState.Success -> {
                 if (isFirstLoad) {
-                    // Halaman pertama: ganti seluruh list
                     allTodos = state.data
                     isFirstLoad = false
                 } else {
-                    // Halaman berikutnya: append
                     allTodos = allTodos + state.data
                     currentPage++
                 }
@@ -107,18 +116,11 @@ fun TodosScreen(
                 isLoadingMore = false
                 isFirstLoad = false
             }
-            is TodosUIState.Loading -> { /* ditangani oleh flag isFirstLoad */ }
+            is TodosUIState.Loading -> {}
         }
     }
 
-    // Reload setelah delete berhasil
-    LaunchedEffect(uiState.todoDelete) {
-        if (uiState.todoDelete is TodoActionUIState.Success) {
-            loadFirstPage()
-        }
-    }
-
-    // Infinite scroll trigger
+    // Infinite scroll
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->
@@ -129,7 +131,8 @@ fun TodosScreen(
             .distinctUntilChanged()
             .collect { nearEnd ->
                 if (nearEnd && !isLoadingMore && hasNextPage) {
-                    loadNextPage()
+                    isLoadingMore = true
+                    loadPage(currentPage + 1, selectedIsDone, selectedUrgency)
                 }
             }
     }
@@ -164,29 +167,22 @@ fun TodosScreen(
                         selectedUrgency = selectedUrgency,
                         onIsDoneChanged = { newValue ->
                             selectedIsDone = newValue
-                            loadFirstPage()
+                            resetAndLoad(isDone = newValue)
                         },
                         onUrgencyChanged = { newValue ->
                             selectedUrgency = newValue
-                            loadFirstPage()
+                            resetAndLoad(urgency = newValue)
                         }
                     )
 
                     when {
-                        // Tampilkan loading spinner hanya saat load pertama & list masih kosong
                         isFirstLoad && uiState.todos is TodosUIState.Loading -> {
-                            Box(
-                                Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
                         allTodos.isEmpty() -> {
-                            Box(
-                                Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("Tidak ada todo.")
                             }
                         }
@@ -204,17 +200,13 @@ fun TodosScreen(
                                     TodoItemUI(
                                         todo = todo,
                                         onClick = { onNavigateToDetail(todo.id) },
-                                        onDelete = {
-                                            todoViewModel.deleteTodo(authToken, todo.id)
-                                        }
+                                        onDelete = { todoViewModel.deleteTodo(authToken, todo.id) }
                                     )
                                 }
                                 if (isLoadingMore) {
                                     item {
                                         Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
+                                            modifier = Modifier.fillMaxWidth().padding(12.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
@@ -248,43 +240,13 @@ private fun TodoFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        FilterChip(
-            selected = selectedIsDone == null,
-            onClick = { onIsDoneChanged(null) },
-            label = { Text("Semua") }
-        )
-        FilterChip(
-            selected = selectedIsDone == false,
-            onClick = { onIsDoneChanged(false) },
-            label = { Text("Belum Selesai") }
-        )
-        FilterChip(
-            selected = selectedIsDone == true,
-            onClick = { onIsDoneChanged(true) },
-            label = { Text("Selesai") }
-        )
-
+        FilterChip(selected = selectedIsDone == null, onClick = { onIsDoneChanged(null) }, label = { Text("Semua") })
+        FilterChip(selected = selectedIsDone == false, onClick = { onIsDoneChanged(false) }, label = { Text("Belum Selesai") })
+        FilterChip(selected = selectedIsDone == true, onClick = { onIsDoneChanged(true) }, label = { Text("Selesai") })
         VerticalDivider(modifier = Modifier.height(28.dp))
-
-        FilterChip(
-            selected = selectedUrgency == null,
-            onClick = { onUrgencyChanged(null) },
-            label = { Text("Semua Urgensi") }
-        )
-        FilterChip(
-            selected = selectedUrgency == "low",
-            onClick = { onUrgencyChanged(if (selectedUrgency == "low") null else "low") },
-            label = { Text("Rendah") }
-        )
-        FilterChip(
-            selected = selectedUrgency == "medium",
-            onClick = { onUrgencyChanged(if (selectedUrgency == "medium") null else "medium") },
-            label = { Text("Sedang") }
-        )
-        FilterChip(
-            selected = selectedUrgency == "high",
-            onClick = { onUrgencyChanged(if (selectedUrgency == "high") null else "high") },
-            label = { Text("Tinggi") }
-        )
+        FilterChip(selected = selectedUrgency == null, onClick = { onUrgencyChanged(null) }, label = { Text("Semua Urgensi") })
+        FilterChip(selected = selectedUrgency == "low", onClick = { onUrgencyChanged(if (selectedUrgency == "low") null else "low") }, label = { Text("Rendah") })
+        FilterChip(selected = selectedUrgency == "medium", onClick = { onUrgencyChanged(if (selectedUrgency == "medium") null else "medium") }, label = { Text("Sedang") })
+        FilterChip(selected = selectedUrgency == "high", onClick = { onUrgencyChanged(if (selectedUrgency == "high") null else "high") }, label = { Text("Tinggi") })
     }
 }

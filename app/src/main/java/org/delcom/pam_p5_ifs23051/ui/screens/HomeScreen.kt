@@ -35,14 +35,14 @@ fun HomeScreen(
     authToken: String,
     todoViewModel: TodoViewModel,
 ) {
+    // Jangan render apapun kalau token belum siap
+    if (authToken.isBlank()) return
+
     val uiState by todoViewModel.uiState.collectAsState()
 
-    // Gunakan authToken sebagai key agar LaunchedEffect dijalankan ulang
-    // saat token baru tersedia (bukan hanya sekali saat komposisi pertama)
+    // Load stats setiap kali authToken berubah (termasuk pertama kali tersedia)
     LaunchedEffect(authToken) {
-        if (authToken.isNotBlank()) {
-            todoViewModel.getStats(authToken)
-        }
+        todoViewModel.getStats(authToken)
     }
 
     val stats = when (val s = uiState.stats) {
@@ -76,14 +76,10 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .shadow(4.dp, RoundedCornerShape(16.dp)),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -185,30 +181,17 @@ private fun StatCard(
     Card(
         modifier = modifier.shadow(2.dp, RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(28.dp)
-            )
+            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(28.dp))
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = iconTint
-                )
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = iconTint)
             } else {
                 Text(
                     text = value,
@@ -217,12 +200,7 @@ private fun StatCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
-            )
+            Text(text = label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
     }
 }

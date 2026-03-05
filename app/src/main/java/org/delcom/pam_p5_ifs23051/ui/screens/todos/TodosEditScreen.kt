@@ -32,12 +32,10 @@ fun TodosEditScreen(
     var isLoading by remember { mutableStateOf(false) }
     var isInitialized by remember { mutableStateOf(false) }
 
-    // Load data todo
     LaunchedEffect(todoId) {
         todoViewModel.getTodoById(authToken, todoId)
     }
 
-    // Isi form saat data berhasil dimuat
     LaunchedEffect(uiState.todo) {
         if (!isInitialized && uiState.todo is TodoUIState.Success) {
             val todo = (uiState.todo as TodoUIState.Success).data
@@ -49,7 +47,6 @@ fun TodosEditScreen(
         }
     }
 
-    // Handle hasil update
     LaunchedEffect(uiState.todoChange) {
         when (val state = uiState.todoChange) {
             is TodoActionUIState.Success -> {
@@ -61,7 +58,8 @@ fun TodosEditScreen(
                 isLoading = false
                 snackbarHostState.showSnackbar(state.message)
             }
-            else -> {}
+            is TodoActionUIState.Loading -> { /* handled by isLoading */ }
+            is TodoActionUIState.Idle -> { /* tidak ada aksi */ }
         }
     }
 
@@ -80,7 +78,12 @@ fun TodosEditScreen(
     ) { paddingValues ->
         when {
             !isInitialized && uiState.todo is TodoUIState.Loading -> {
-                Box(Modifier.fillMaxSize().padding(paddingValues), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
                     CircularProgressIndicator()
                 }
             }
@@ -109,7 +112,6 @@ fun TodosEditScreen(
                         minLines = 3
                     )
 
-                    // Status selesai
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -119,7 +121,6 @@ fun TodosEditScreen(
                         Switch(checked = isDone, onCheckedChange = { isDone = it })
                     }
 
-                    // Urgency selector
                     Text("Urgensi", style = MaterialTheme.typography.labelLarge)
                     UrgencySelector(
                         selectedUrgency = urgency,

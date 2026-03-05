@@ -41,7 +41,7 @@ import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
 import java.io.File
 
-private const val BASE_URL = "https://pam-2026-p5-ifs18005-be.delcom.org:8080/"
+private const val BASE_URL = "https://pam-2026-p5-ifs23051-be.yuriii.fun:8080/"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +55,9 @@ fun ProfileScreen(
     val uiStateAuth by authViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Gunakan timestamp untuk force-reload foto profil setelah upload berhasil
+    var photoTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     var showEditSheet by remember { mutableStateOf(false) }
     var showPasswordSheet by remember { mutableStateOf(false) }
@@ -79,13 +82,22 @@ fun ProfileScreen(
         }
     }
 
-    // Handle hasil update foto
+    // Handle hasil update foto - PERBAIKAN: reset state setelah diproses
     LaunchedEffect(uiState.profilePhoto) {
-        if (uiState.profilePhoto is TodoActionUIState.Success) {
-            snackbarHostState.showSnackbar("success|Foto profil berhasil diperbarui")
-            todoViewModel.getProfile(authToken)
-        } else if (uiState.profilePhoto is TodoActionUIState.Error) {
-            snackbarHostState.showSnackbar("error|${(uiState.profilePhoto as TodoActionUIState.Error).message}")
+        when (val state = uiState.profilePhoto) {
+            is TodoActionUIState.Success -> {
+                photoTimestamp = System.currentTimeMillis()
+                snackbarHostState.showSnackbar("success|Foto profil berhasil diperbarui")
+                todoViewModel.getProfile(authToken)
+                // Reset state agar tidak trigger ulang
+                todoViewModel.resetProfilePhotoState()
+            }
+            is TodoActionUIState.Error -> {
+                snackbarHostState.showSnackbar("error|${state.message}")
+                // Reset state agar tidak trigger ulang
+                todoViewModel.resetProfilePhotoState()
+            }
+            else -> {}
         }
     }
 
@@ -102,7 +114,6 @@ fun ProfileScreen(
                 )
             }
             is AuthLogoutUIState.Error -> {
-                // Tetap logout dari sisi client meski server error
                 RouteHelper.to(
                     navController,
                     ConstHelper.RouteNames.AuthLogin.path,
@@ -118,14 +129,12 @@ fun ProfileScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Top App Bar ────────────────────────────────────────────────
         TopAppBarComponent(
             navController = navController,
             title = "Profile",
             showBackButton = false,
         )
 
-        // ── Body ───────────────────────────────────────────────────────
         Box(modifier = Modifier.weight(1f)) {
             Column(
                 modifier = Modifier
@@ -137,11 +146,11 @@ fun ProfileScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // ── Foto Profil ──────────────────────────────────────────────
+                // Foto Profil
                 Box(contentAlignment = Alignment.BottomEnd) {
                     AsyncImage(
                         model = if (profile?.id != null)
-                            "${BASE_URL}images/users/${profile.id}?t=${System.currentTimeMillis()}"
+                            "${BASE_URL}images/users/${profile.id}?t=$photoTimestamp"
                         else null,
                         contentDescription = "Foto Profil",
                         modifier = Modifier
@@ -150,6 +159,15 @@ fun ProfileScreen(
                             .clickable { imagePicker.launch("image/*") },
                         contentScale = ContentScale.Crop
                     )
+                    // Tampilkan loading indicator saat upload foto
+                    if (uiState.profilePhoto is TodoActionUIState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(CircleShape),
+                            strokeWidth = 3.dp
+                        )
+                    }
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
@@ -164,7 +182,7 @@ fun ProfileScreen(
                     }
                 }
 
-                // ── Info User ────────────────────────────────────────────────
+                // Info User
                 if (profile != null) {
                     Text(
                         profile.name,
@@ -180,7 +198,7 @@ fun ProfileScreen(
                     CircularProgressIndicator()
                 }
 
-                // ── Tentang ──────────────────────────────────────────────────
+                // Tentang
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Tentang", style = MaterialTheme.typography.labelLarge)
@@ -198,7 +216,6 @@ fun ProfileScreen(
 
                 HorizontalDivider()
 
-                // ── Tombol Aksi Profil ───────────────────────────────────────
                 OutlinedButton(
                     onClick = { showEditSheet = true },
                     modifier = Modifier.fillMaxWidth()
@@ -216,7 +233,6 @@ fun ProfileScreen(
 
                 HorizontalDivider()
 
-                // ── Tombol Logout ────────────────────────────────────────────
                 Button(
                     onClick = { showLogoutDialog = true },
                     modifier = Modifier.fillMaxWidth(),
@@ -237,18 +253,16 @@ fun ProfileScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            // Snackbar
             SnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
 
-        // ── Bottom Nav ─────────────────────────────────────────────────
         BottomNavComponent(navController = navController)
     }
 
-    // ── Dialog Konfirmasi Logout ──────────────────────────
+    // Dialog Konfirmasi Logout
     BottomDialog(
         show = showLogoutDialog,
         onDismiss = { showLogoutDialog = false },
@@ -261,7 +275,6 @@ fun ProfileScreen(
         destructiveAction = true
     )
 
-    // ── Sheet: Edit Profil ────────────────────────────────
     if (showEditSheet) {
         EditProfileSheet(
             currentName = profile?.name ?: "",
@@ -278,7 +291,6 @@ fun ProfileScreen(
         )
     }
 
-    // ── Sheet: Ubah Kata Sandi ────────────────────────────
     if (showPasswordSheet) {
         ChangePasswordSheet(
             onDismiss = { showPasswordSheet = false },
@@ -288,7 +300,6 @@ fun ProfileScreen(
         )
     }
 
-    // ── Sheet: Edit Tentang ───────────────────────────────
     if (showAboutSheet) {
         EditAboutSheet(
             currentAbout = profile?.about ?: "",
@@ -303,9 +314,6 @@ fun ProfileScreen(
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// Sheet: Edit Profil
-// ─────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditProfileSheet(
@@ -361,9 +369,6 @@ private fun EditProfileSheet(
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// Sheet: Ubah Kata Sandi
-// ─────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChangePasswordSheet(
@@ -443,9 +448,6 @@ private fun ChangePasswordSheet(
     }
 }
 
-// ─────────────────────────────────────────────────────────
-// Sheet: Edit Tentang
-// ─────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditAboutSheet(

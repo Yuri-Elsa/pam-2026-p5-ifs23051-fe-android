@@ -50,7 +50,6 @@ fun UIApp(
     val authState = uiStateAuth.auth
     val authToken = (authState as? AuthUIState.Success)?.data?.authToken ?: ""
 
-    // Redirect otomatis berdasarkan status autentikasi
     LaunchedEffect(authState) {
         when (authState) {
             is AuthUIState.Error -> {
@@ -72,11 +71,10 @@ fun UIApp(
                     )
                 }
             }
-            is AuthUIState.Loading -> { /* tampilkan loading */ }
+            is AuthUIState.Loading -> {}
         }
     }
 
-    // Tampilkan loading saat mengecek token dari preferences
     if (authState is AuthUIState.Loading) {
         Box(
             modifier = Modifier
@@ -157,9 +155,11 @@ fun UIApp(
             }
 
             composable(route = ConstHelper.RouteNames.TodosAdd.path) {
+                // Pass navController agar bisa set savedStateHandle ke TodosScreen
                 TodosAddScreen(
                     authToken = authToken,
                     todoViewModel = todoViewModel,
+                    navController = navController,
                     onNavigateBack = { RouteHelper.back(navController) }
                 )
             }
@@ -193,24 +193,3 @@ fun UIApp(
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

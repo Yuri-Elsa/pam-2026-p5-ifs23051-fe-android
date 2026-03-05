@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
 import org.delcom.pam_p5_ifs23051.ui.components.UrgencySelector
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
@@ -18,6 +19,7 @@ import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
 fun TodosAddScreen(
     authToken: String,
     todoViewModel: TodoViewModel,
+    navController: NavHostController,
     onNavigateBack: () -> Unit,
 ) {
     val uiState by todoViewModel.uiState.collectAsState()
@@ -32,14 +34,19 @@ fun TodosAddScreen(
         when (val state = uiState.todoAdd) {
             is TodoActionUIState.Success -> {
                 isLoading = false
-                snackbarHostState.showSnackbar("Todo berhasil ditambahkan")
+                // Kirim sinyal "todo_added = true" ke backstack entry sebelumnya (TodosScreen)
+                navController.previousBackStackEntry
+                    ?.savedStateHandle
+                    ?.set("todo_added", true)
+                todoViewModel.resetTodoAddState()
                 onNavigateBack()
             }
             is TodoActionUIState.Error -> {
                 isLoading = false
                 snackbarHostState.showSnackbar(state.message)
             }
-            is TodoActionUIState.Loading -> { /* handled by isLoading */ }
+            is TodoActionUIState.Loading -> {}
+            is TodoActionUIState.Idle -> {}
         }
     }
 
@@ -80,7 +87,6 @@ fun TodosAddScreen(
                 minLines = 3
             )
 
-            // Urgency selector
             Text("Urgensi", style = MaterialTheme.typography.labelLarge)
             UrgencySelector(
                 selectedUrgency = urgency,
