@@ -73,9 +73,10 @@ data class UIStateTodo(
     var todoChange: TodoActionUIState = TodoActionUIState.Idle,
     var todoDelete: TodoActionUIState = TodoActionUIState.Idle,
     var todoChangeCover: TodoActionUIState = TodoActionUIState.Loading,
-    var profileUpdate: TodoActionUIState = TodoActionUIState.Loading,
-    var profilePassword: TodoActionUIState = TodoActionUIState.Loading,
-    var profileAbout: TodoActionUIState = TodoActionUIState.Loading,
+    // FIX: was Loading — caused profile edit buttons to always show spinner
+    var profileUpdate: TodoActionUIState = TodoActionUIState.Idle,
+    var profilePassword: TodoActionUIState = TodoActionUIState.Idle,
+    var profileAbout: TodoActionUIState = TodoActionUIState.Idle,
     var profilePhoto: TodoActionUIState = TodoActionUIState.Idle,
 )
 
@@ -163,7 +164,6 @@ class TodoViewModel @Inject constructor(
             }.fold(
                 onSuccess = { response ->
                     if (response.status == "success" && response.data != null) {
-                        // FIX: provide a safe fallback pagination in case it's null
                         val pagination = response.data.pagination ?: ResponsePagination(
                             currentPage = page,
                             perPage = perPage,
@@ -187,7 +187,6 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(todoAdd = TodoActionUIState.Loading) }
             val result = runCatching {
-                // FIX: correct argument order — isDone defaults to false
                 repository.postTodo(authToken, RequestTodo(title, description, false, urgency))
             }.fold(
                 onSuccess = {
@@ -290,6 +289,10 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    fun resetProfileUpdateState() {
+        _uiState.update { it.copy(profileUpdate = TodoActionUIState.Idle) }
+    }
+
     fun updatePassword(authToken: String, password: String, newPassword: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profilePassword = TodoActionUIState.Loading) }
@@ -306,6 +309,10 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    fun resetProfilePasswordState() {
+        _uiState.update { it.copy(profilePassword = TodoActionUIState.Idle) }
+    }
+
     fun updateAbout(authToken: String, about: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(profileAbout = TodoActionUIState.Loading) }
@@ -320,6 +327,10 @@ class TodoViewModel @Inject constructor(
             )
             _uiState.update { it.copy(profileAbout = result) }
         }
+    }
+
+    fun resetProfileAboutState() {
+        _uiState.update { it.copy(profileAbout = TodoActionUIState.Idle) }
     }
 
     fun updatePhoto(authToken: String, file: MultipartBody.Part) {

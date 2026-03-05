@@ -66,7 +66,7 @@ fun ProfileScreen(
     var showAboutSheet by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // Photo picker — uses PickVisualMedia (same pattern as todo cover)
+    // Photo picker
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var showPhotoConfirmDialog by remember { mutableStateOf(false) }
 
@@ -101,7 +101,7 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) { todoViewModel.getProfile(authToken) }
 
-    // Handle logout result — only navigate when logout was explicitly triggered
+    // Handle logout result
     var logoutTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(uiStateAuth.authLogout) {
         if (!logoutTriggered) return@LaunchedEffect
@@ -127,7 +127,7 @@ fun ProfileScreen(
             navController = navController,
             title = "Profile",
             showBackButton = false,
-            showMenu = false,   // No menu — actions are inline buttons below
+            showMenu = false,
         )
 
         Box(modifier = Modifier.weight(1f)) {
@@ -141,7 +141,7 @@ fun ProfileScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // ── Profile photo with camera overlay (same pattern as todo cover) ──
+                // ── Profile photo ──────────────────────────────────────────
                 Box(contentAlignment = Alignment.Center) {
                     Box(
                         contentAlignment = Alignment.BottomEnd,
@@ -155,7 +155,6 @@ fun ProfileScreen(
                                 )
                             }
                     ) {
-                        // Avatar image
                         AsyncImage(
                             model = if (profile?.id != null)
                                 "${BASE_URL}images/users/${profile.id}?t=$photoTimestamp"
@@ -167,7 +166,6 @@ fun ProfileScreen(
                             contentScale = ContentScale.Crop
                         )
 
-                        // Camera badge (bottom-end)
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary,
@@ -184,7 +182,6 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Upload progress overlay
                     if (uiState.profilePhoto is TodoActionUIState.Loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(108.dp),
@@ -193,7 +190,6 @@ fun ProfileScreen(
                     }
                 }
 
-                // Preview new photo + Simpan button (same pattern as todo cover)
                 if (pendingPhotoUri != null) {
                     Text(
                         "Foto baru dipilih",
@@ -228,7 +224,11 @@ fun ProfileScreen(
                         ) {
                             Text("Tentang", style = MaterialTheme.typography.labelLarge)
                             IconButton(
-                                onClick = { showAboutSheet = true },
+                                onClick = {
+                                    // FIX: reset state sebelum membuka sheet
+                                    todoViewModel.resetProfileAboutState()
+                                    showAboutSheet = true
+                                },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
@@ -255,12 +255,20 @@ fun ProfileScreen(
 
                 // ── Action buttons ─────────────────────────────────────────
                 OutlinedButton(
-                    onClick = { showEditSheet = true },
+                    onClick = {
+                        // FIX: reset state sebelum membuka sheet agar tidak tampil loading
+                        todoViewModel.resetProfileUpdateState()
+                        showEditSheet = true
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Edit Profil (Nama & Username)") }
 
                 OutlinedButton(
-                    onClick = { showPasswordSheet = true },
+                    onClick = {
+                        // FIX: reset state sebelum membuka sheet agar tidak tampil loading
+                        todoViewModel.resetProfilePasswordState()
+                        showPasswordSheet = true
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Ubah Kata Sandi") }
 
@@ -295,7 +303,7 @@ fun ProfileScreen(
         BottomNavComponent(navController = navController)
     }
 
-    // ── Photo confirm dialog (matches todo cover flow) ─────────────────────
+    // ── Photo confirm dialog ───────────────────────────────────────────────
     BottomDialog(
         show = showPhotoConfirmDialog,
         onDismiss = {
@@ -344,7 +352,10 @@ fun ProfileScreen(
         EditProfileSheet(
             currentName = profile?.name ?: "",
             currentUsername = profile?.username ?: "",
-            onDismiss = { showEditSheet = false },
+            onDismiss = {
+                showEditSheet = false
+                todoViewModel.resetProfileUpdateState()
+            },
             onSave = { name, username ->
                 todoViewModel.updateProfile(authToken, name, username)
             },
@@ -352,6 +363,7 @@ fun ProfileScreen(
             onSuccess = {
                 showEditSheet = false
                 todoViewModel.getProfile(authToken)
+                todoViewModel.resetProfileUpdateState()
             }
         )
     }
@@ -359,10 +371,16 @@ fun ProfileScreen(
     // ── Change password sheet ──────────────────────────────────────────────
     if (showPasswordSheet) {
         ChangePasswordSheet(
-            onDismiss = { showPasswordSheet = false },
+            onDismiss = {
+                showPasswordSheet = false
+                todoViewModel.resetProfilePasswordState()
+            },
             onSave = { oldPw, newPw -> todoViewModel.updatePassword(authToken, oldPw, newPw) },
             uiState = uiState.profilePassword,
-            onSuccess = { showPasswordSheet = false }
+            onSuccess = {
+                showPasswordSheet = false
+                todoViewModel.resetProfilePasswordState()
+            }
         )
     }
 
@@ -370,12 +388,16 @@ fun ProfileScreen(
     if (showAboutSheet) {
         EditAboutSheet(
             currentAbout = profile?.about ?: "",
-            onDismiss = { showAboutSheet = false },
+            onDismiss = {
+                showAboutSheet = false
+                todoViewModel.resetProfileAboutState()
+            },
             onSave = { about -> todoViewModel.updateAbout(authToken, about) },
             uiState = uiState.profileAbout,
             onSuccess = {
                 showAboutSheet = false
                 todoViewModel.getProfile(authToken)
+                todoViewModel.resetProfileAboutState()
             }
         )
     }
@@ -430,6 +452,7 @@ private fun EditProfileSheet(
             Button(
                 onClick = { if (name.isNotBlank() && username.isNotBlank()) onSave(name, username) },
                 modifier = Modifier.fillMaxWidth(),
+                // FIX: hanya disabled saat Loading, bukan Idle
                 enabled = uiState !is TodoActionUIState.Loading
             ) {
                 if (uiState is TodoActionUIState.Loading)
@@ -511,6 +534,7 @@ private fun ChangePasswordSheet(
                     onSave(oldPassword, newPassword)
                 },
                 modifier = Modifier.fillMaxWidth(),
+                // FIX: hanya disabled saat Loading, bukan Idle
                 enabled = uiState !is TodoActionUIState.Loading
             ) {
                 if (uiState is TodoActionUIState.Loading)
