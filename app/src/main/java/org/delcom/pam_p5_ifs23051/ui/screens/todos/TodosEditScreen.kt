@@ -42,7 +42,8 @@ fun TodosEditScreen(
             title = todo.title
             description = todo.description
             isDone = todo.isDone
-            urgency = todo.urgency
+            // FIX: urgency nullable dari Gson — fallback ke "medium" jika null
+            urgency = todo.urgency ?: "medium"
             isInitialized = true
         }
     }

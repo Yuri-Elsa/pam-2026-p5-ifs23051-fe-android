@@ -32,10 +32,13 @@ data class ResponseTodo(
 data class ResponseTodoData(
     val id: String = "",
     val userId: String = "",
-    val title: String,
-    val description: String,
+    val title: String = "",
+    val description: String = "",
     val isDone: Boolean = false,
-    val urgency: String = "medium",
+    // FIX: nullable karena Gson tidak menerapkan Kotlin default values saat deserialisasi.
+    // Server tidak selalu mengirim field 'urgency', sehingga Gson mengisinya dengan null
+    // meskipun ada default value "medium" di konstruktor Kotlin.
+    val urgency: String? = null,
     val cover: String? = null,
     val createdAt: String = "",
     var updatedAt: String = ""

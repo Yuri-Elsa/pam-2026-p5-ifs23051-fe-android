@@ -19,6 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import org.delcom.pam_p5_ifs23051.helper.ConstHelper
+import org.delcom.pam_p5_ifs23051.helper.RouteHelper
 import org.delcom.pam_p5_ifs23051.network.todos.data.ResponseTodoData
 import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
 import org.delcom.pam_p5_ifs23051.ui.components.TopAppBarComponent
@@ -37,11 +39,19 @@ fun TodosScreen(
     onNavigateToAdd: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
 ) {
-    if (authToken.isBlank()) return
+    // ── Auth guard: redirect to login if not authenticated ─────────────────
+    if (authToken.isBlank()) {
+        LaunchedEffect(Unit) {
+            RouteHelper.to(
+                navController,
+                ConstHelper.RouteNames.AuthLogin.path,
+                removeBackStack = true
+            )
+        }
+        return
+    }
 
     val uiState by todoViewModel.uiState.collectAsState()
-
-    // Observasi current backstack entry untuk menangkap sinyal dari layar child
     val navBackStackEntry by navController.currentBackStackEntryAsState()
 
     var selectedIsDone by remember { mutableStateOf<Boolean?>(null) }
@@ -74,23 +84,17 @@ fun TodosScreen(
         loadPage(1, isDone, urgency)
     }
 
-    // Load pertama kali
-    LaunchedEffect(authToken) {
-        resetAndLoad()
-    }
+    LaunchedEffect(authToken) { resetAndLoad() }
 
-    // Tangkap sinyal "todo_added" dari TodosAddScreen via savedStateHandle
-    // navBackStackEntry berubah setiap kali user kembali ke screen ini
     LaunchedEffect(navBackStackEntry) {
         val savedStateHandle = navBackStackEntry?.savedStateHandle
         val todoAdded = savedStateHandle?.get<Boolean>("todo_added") ?: false
         if (todoAdded) {
-            savedStateHandle?.remove<Boolean>("todo_added") // hapus agar tidak trigger ulang
+            savedStateHandle?.remove<Boolean>("todo_added")
             resetAndLoad()
         }
     }
 
-    // Reload setelah delete berhasil
     LaunchedEffect(uiState.todoDelete) {
         if (uiState.todoDelete is TodoActionUIState.Success) {
             todoViewModel.resetTodoDeleteState()
@@ -98,7 +102,6 @@ fun TodosScreen(
         }
     }
 
-    // Proses hasil todos
     LaunchedEffect(uiState.todos) {
         when (val state = uiState.todos) {
             is TodosUIState.Success -> {
@@ -120,7 +123,6 @@ fun TodosScreen(
         }
     }
 
-    // Infinite scroll
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->

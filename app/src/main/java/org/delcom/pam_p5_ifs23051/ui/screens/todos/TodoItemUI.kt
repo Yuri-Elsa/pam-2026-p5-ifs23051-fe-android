@@ -91,8 +91,12 @@ fun TodoItemUI(
                     )
                 }
 
-                // Urgency badge
-                UrgencyBadge(urgency = todo.urgency)
+                // FIX: Urgency badge hanya ditampilkan jika urgency tidak null.
+                // Gson tidak menerapkan Kotlin default values saat deserialisasi,
+                // sehingga field yang tidak ada di JSON akan menjadi null.
+                if (todo.urgency != null) {
+                    UrgencyBadge(urgency = todo.urgency)
+                }
             }
         }
     }

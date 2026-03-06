@@ -46,21 +46,21 @@ fun HomeScreen(
     authToken: String,
     todoViewModel: TodoViewModel,
 ) {
-    if (authToken.isBlank()) return
+    // ── Determine whether the user is authenticated ────────────────────────
+    val isAuthenticated = authToken.isNotBlank()
 
     val uiState by todoViewModel.uiState.collectAsState()
-    // Use dedicated home todos state — isolated from shared uiState to prevent race condition
     val homeTodosState by todoViewModel.homeTodosState.collectAsState()
 
-    // ── Stats ──────────────────────────────────────────────────────────────
+    // ── Stats (only when logged in) ────────────────────────────────────────
     LaunchedEffect(authToken) {
-        todoViewModel.getStats(authToken)
+        if (isAuthenticated) todoViewModel.getStats(authToken)
     }
 
     val stats = (uiState.stats as? StatsUIState.Success)?.data
     val isStatsLoading = uiState.stats is StatsUIState.Loading
 
-    // ── Todos infinite scroll ──────────────────────────────────────────────
+    // ── Todos infinite scroll (only when logged in) ────────────────────────
     var currentPage by remember { mutableStateOf(1) }
     var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
     var hasNextPage by remember { mutableStateOf(false) }
@@ -70,7 +70,9 @@ fun HomeScreen(
     val listState = rememberLazyListState()
 
     fun loadPage(page: Int) {
-        todoViewModel.getHomeTodos(authToken = authToken, page = page, perPage = PER_PAGE)
+        if (isAuthenticated) {
+            todoViewModel.getHomeTodos(authToken = authToken, page = page, perPage = PER_PAGE)
+        }
     }
 
     fun resetAndLoad() {
@@ -83,19 +85,20 @@ fun HomeScreen(
     }
 
     LaunchedEffect(authToken) {
-        resetAndLoad()
+        if (isAuthenticated) resetAndLoad()
     }
 
     // Reload after delete
     LaunchedEffect(uiState.todoDelete) {
         if (uiState.todoDelete is TodoActionUIState.Success) {
             todoViewModel.resetTodoDeleteState()
-            resetAndLoad()
-            todoViewModel.getStats(authToken)
+            if (isAuthenticated) {
+                resetAndLoad()
+                todoViewModel.getStats(authToken)
+            }
         }
     }
 
-    // Process todos result from dedicated homeTodosState
     LaunchedEffect(homeTodosState) {
         when (val state = homeTodosState) {
             is HomeTodosUIState.Success -> {
@@ -127,7 +130,7 @@ fun HomeScreen(
             }
             .distinctUntilChanged()
             .collect { nearEnd ->
-                if (nearEnd && !isLoadingMore && hasNextPage) {
+                if (nearEnd && !isLoadingMore && hasNextPage && isAuthenticated) {
                     isLoadingMore = true
                     loadPage(currentPage + 1)
                 }
@@ -150,7 +153,19 @@ fun HomeScreen(
             Scaffold(
                 floatingActionButton = {
                     FloatingActionButton(
-                        onClick = { RouteHelper.to(navController, ConstHelper.RouteNames.TodosAdd.path) }
+                        onClick = {
+                            if (isAuthenticated) {
+                                // Logged in → go to add screen
+                                RouteHelper.to(navController, ConstHelper.RouteNames.TodosAdd.path)
+                            } else {
+                                // Not logged in → redirect to login
+                                RouteHelper.to(
+                                    navController,
+                                    ConstHelper.RouteNames.AuthLogin.path,
+                                    removeBackStack = true
+                                )
+                            }
+                        }
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Tambah Todo")
                     }
@@ -196,6 +211,47 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
+
+                    // ── Not logged in banner ───────────────────────────────
+                    if (!isAuthenticated) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Masuk untuk melihat dan mengelola todos kamu",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Button(
+                                        onClick = {
+                                            RouteHelper.to(
+                                                navController,
+                                                ConstHelper.RouteNames.AuthLogin.path,
+                                                removeBackStack = true
+                                            )
+                                        }
+                                    ) {
+                                        Text("Masuk / Daftar")
+                                    }
+                                }
+                            }
+                        }
+                        return@LazyColumn
                     }
 
                     // ── Stats ──────────────────────────────────────────────
@@ -255,24 +311,17 @@ fun HomeScreen(
                         )
                     }
 
-                    // ── First load indicator ───────────────────────────────
                     if (isFirstLoad && homeTodosState is HomeTodosUIState.Loading) {
                         item {
                             Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
                                 contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
+                            ) { CircularProgressIndicator() }
                         }
                     } else if (allTodos.isEmpty()) {
                         item {
                             Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -282,11 +331,7 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        // ── Todo items ─────────────────────────────────────
-                        itemsIndexed(
-                            items = allTodos,
-                            key = { _, todo -> todo.id }
-                        ) { _, todo ->
+                        itemsIndexed(items = allTodos, key = { _, todo -> todo.id }) { _, todo ->
                             TodoItemUI(
                                 todo = todo,
                                 onClick = {
@@ -301,13 +346,10 @@ fun HomeScreen(
                             )
                         }
 
-                        // ── Load more indicator ────────────────────────────
                         if (isLoadingMore) {
                             item {
                                 Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
@@ -339,9 +381,7 @@ private fun StatCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {

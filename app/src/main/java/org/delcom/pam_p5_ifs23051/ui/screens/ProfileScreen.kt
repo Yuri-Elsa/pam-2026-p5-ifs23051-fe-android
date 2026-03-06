@@ -27,10 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
 import org.delcom.pam_p5_ifs23051.helper.ConstHelper
+import org.delcom.pam_p5_ifs23051.helper.ImageCompressHelper
 import org.delcom.pam_p5_ifs23051.helper.RouteHelper
 import org.delcom.pam_p5_ifs23051.ui.components.BottomNavComponent
 import org.delcom.pam_p5_ifs23051.ui.components.BottomDialogType
@@ -41,7 +39,6 @@ import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthViewModel
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.ProfileUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
-import java.io.File
 
 private const val BASE_URL = "https://pam-2026-p5-ifs23051-be.yuriii.fun:8080/"
 
@@ -53,6 +50,16 @@ fun ProfileScreen(
     todoViewModel: TodoViewModel,
     authViewModel: AuthViewModel,
 ) {
+    // ── Redirect to login if not authenticated ────────────────────────────
+    if (authToken.isBlank()) {
+        RouteHelper.to(
+            navController,
+            ConstHelper.RouteNames.AuthLogin.path,
+            removeBackStack = true
+        )
+        return
+    }
+
     val uiState by todoViewModel.uiState.collectAsState()
     val uiStateAuth by authViewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -60,13 +67,11 @@ fun ProfileScreen(
 
     var photoTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // Sheet / dialog visibility
     var showEditSheet by remember { mutableStateOf(false) }
     var showPasswordSheet by remember { mutableStateOf(false) }
     var showAboutSheet by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // Photo picker
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var showPhotoConfirmDialog by remember { mutableStateOf(false) }
 
@@ -101,7 +106,6 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) { todoViewModel.getProfile(authToken) }
 
-    // Handle logout result
     var logoutTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(uiStateAuth.authLogout) {
         if (!logoutTriggered) return@LaunchedEffect
@@ -198,7 +202,6 @@ fun ProfileScreen(
                     )
                 }
 
-                // ── User info ──────────────────────────────────────────────
                 if (profile != null) {
                     Text(
                         profile.name,
@@ -225,7 +228,6 @@ fun ProfileScreen(
                             Text("Tentang", style = MaterialTheme.typography.labelLarge)
                             IconButton(
                                 onClick = {
-                                    // FIX: reset state sebelum membuka sheet
                                     todoViewModel.resetProfileAboutState()
                                     showAboutSheet = true
                                 },
@@ -253,10 +255,8 @@ fun ProfileScreen(
 
                 HorizontalDivider()
 
-                // ── Action buttons ─────────────────────────────────────────
                 OutlinedButton(
                     onClick = {
-                        // FIX: reset state sebelum membuka sheet agar tidak tampil loading
                         todoViewModel.resetProfileUpdateState()
                         showEditSheet = true
                     },
@@ -265,7 +265,6 @@ fun ProfileScreen(
 
                 OutlinedButton(
                     onClick = {
-                        // FIX: reset state sebelum membuka sheet agar tidak tampil loading
                         todoViewModel.resetProfilePasswordState()
                         showPasswordSheet = true
                     },
@@ -311,18 +310,12 @@ fun ProfileScreen(
             pendingPhotoUri = null
         },
         title = "Ganti Foto Profil",
-        message = "Apakah kamu yakin ingin mengganti foto profil?",
+        message = "Foto akan dikompres otomatis sebelum diunggah untuk menghemat data. Lanjutkan?",
         confirmText = "Ya, Simpan",
         onConfirm = {
             pendingPhotoUri?.let { uri ->
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val ext = context.contentResolver.getType(uri)
-                    ?.substringAfterLast('/') ?: "jpg"
-                val tempFile = File.createTempFile("photo_", ".$ext", context.cacheDir).apply {
-                    outputStream().use { out -> inputStream?.copyTo(out) }
-                }
-                val requestFile = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
-                val part = MultipartBody.Part.createFormData("file", tempFile.name, requestFile)
+                // ✅ Use compressed multipart instead of raw file
+                val part = ImageCompressHelper.uriToCompressedMultipart(context, uri, "file")
                 todoViewModel.updatePhoto(authToken, part)
             }
             showPhotoConfirmDialog = false
@@ -452,7 +445,6 @@ private fun EditProfileSheet(
             Button(
                 onClick = { if (name.isNotBlank() && username.isNotBlank()) onSave(name, username) },
                 modifier = Modifier.fillMaxWidth(),
-                // FIX: hanya disabled saat Loading, bukan Idle
                 enabled = uiState !is TodoActionUIState.Loading
             ) {
                 if (uiState is TodoActionUIState.Loading)
@@ -480,9 +472,7 @@ private fun ChangePasswordSheet(
     LaunchedEffect(uiState) {
         when (uiState) {
             is TodoActionUIState.Success -> onSuccess()
-            is TodoActionUIState.Error -> {
-                snackbarHostState.showSnackbar(uiState.message)
-            }
+            is TodoActionUIState.Error -> snackbarHostState.showSnackbar(uiState.message)
             else -> {}
         }
     }
@@ -534,7 +524,6 @@ private fun ChangePasswordSheet(
                     onSave(oldPassword, newPassword)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                // FIX: hanya disabled saat Loading, bukan Idle
                 enabled = uiState !is TodoActionUIState.Loading
             ) {
                 if (uiState is TodoActionUIState.Loading)
