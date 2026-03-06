@@ -47,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,8 +68,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.delcom.pam_p5_ifs23051.R
 import org.delcom.pam_p5_ifs23051.helper.ConstHelper
@@ -76,7 +75,6 @@ import org.delcom.pam_p5_ifs23051.helper.RouteHelper
 import org.delcom.pam_p5_ifs23051.helper.SuspendHelper
 import org.delcom.pam_p5_ifs23051.ui.components.LoadingUI
 import org.delcom.pam_p5_ifs23051.ui.theme.DelcomTheme
-import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthViewModel
 
@@ -88,15 +86,20 @@ fun AuthLoginScreen(
     authViewModel: AuthViewModel,
 ) {
     var isProcessLogin by remember { mutableStateOf(false) }
-//    val context: Context = LocalContext.current
 
     val uiStateAuth by authViewModel.uiState.collectAsState()
+
+    // ✅ FIX: Gunakan rememberCoroutineScope agar coroutine terikat lifecycle Composable
+    // Menggantikan: CoroutineScope(Dispatchers.Main).launch { ... }
+    // CoroutineScope bebas tidak akan dibatalkan saat screen di-destroy → memory leak
+    val scope = rememberCoroutineScope()
 
     val onLogin: (username: String, password: String) -> Unit = lambda@{ username, password ->
         if (isProcessLogin) return@lambda
 
         if (username.isEmpty() || password.isEmpty()) {
-            CoroutineScope(Dispatchers.Main).launch {
+            // ✅ FIX: scope terikat lifecycle, otomatis cancel saat Composable hilang
+            scope.launch {
                 SuspendHelper.showSnackBar(
                     snackbarHost = snackbarHost,
                     type = SuspendHelper.SnackBarType.ERROR,
@@ -107,10 +110,7 @@ fun AuthLoginScreen(
         }
 
         isProcessLogin = true
-        authViewModel.login(
-            username = username,
-            password = password
-        )
+        authViewModel.login(username = username, password = password)
     }
 
     LaunchedEffect(uiStateAuth.auth) {
@@ -162,25 +162,16 @@ private fun AuthLoginUI(
     navController: NavHostController,
     onLogin: (username: String, password: String) -> Unit
 ) {
-//    val context = LocalContext.current
-
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
 
-    // Focus requesters for the text fields
     val usernameFocusRequester = remember { FocusRequester() }
     val passwordFocusRequester = remember { FocusRequester() }
-
-    // Focus manager
     val focusManager = LocalFocusManager.current
-
     val scrollState = rememberScrollState()
 
-    Box(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // Background decorative elements
+    Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -228,19 +219,14 @@ private fun AuthLoginUI(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Welcome message
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "Selamat Datang",
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Text(
                     text = "Masuk untuk mengakses akun Anda",
                     style = MaterialTheme.typography.bodyLarge,
@@ -251,21 +237,16 @@ private fun AuthLoginUI(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Login Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.onSurface
                 ),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = 8.dp
-                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp)
-                ) {
+                Column(modifier = Modifier.padding(24.dp)) {
                     // Username field
                     OutlinedTextField(
                         value = username,
@@ -298,14 +279,8 @@ private fun AuthLoginUI(
                             focusedLabelColor = MaterialTheme.colorScheme.primary,
                             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
-                        keyboardOptions = KeyboardOptions.Default.copy(
-                            imeAction = ImeAction.Next
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onNext = {
-                                passwordFocusRequester.requestFocus()
-                            }
-                        )
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { passwordFocusRequester.requestFocus() })
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -342,20 +317,17 @@ private fun AuthLoginUI(
                             focusedLabelColor = MaterialTheme.colorScheme.primary,
                             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
-                        keyboardOptions = KeyboardOptions.Default.copy(
-                            imeAction = ImeAction.Send
-                        ),
+                        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(
                             onSend = {
                                 focusManager.clearFocus()
                                 onLogin(username, password)
                             }
                         ),
-                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None
+                        else PasswordVisualTransformation(),
                         trailingIcon = {
-                            IconButton(
-                                onClick = { isPasswordVisible = !isPasswordVisible }
-                            ) {
+                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
                                 Icon(
                                     imageVector = if (isPasswordVisible)
                                         Icons.Default.Visibility
@@ -370,11 +342,8 @@ private fun AuthLoginUI(
 
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    // Login Button
                     Button(
-                        onClick = {
-                            onLogin(username, password)
-                        },
+                        onClick = { onLogin(username, password) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
@@ -396,7 +365,6 @@ private fun AuthLoginUI(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Button ke halaman Register
                     OutlinedButton(
                         onClick = {
                             RouteHelper.to(navController, ConstHelper.RouteNames.AuthRegister.path)
@@ -406,10 +374,7 @@ private fun AuthLoginUI(
                             .height(56.dp)
                             .imePadding(),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary
-                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.primary
                         )
@@ -425,27 +390,23 @@ private fun AuthLoginUI(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Footer links
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.Center
-            )
-            {
+            ) {
                 Text(
                     text = "Terms",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
-
                 Text(
                     text = "|",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
-
                 Text(
                     text = "Privacy",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

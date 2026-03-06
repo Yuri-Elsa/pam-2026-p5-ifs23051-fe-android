@@ -1,6 +1,5 @@
 package org.delcom.pam_p5_ifs23051.ui.viewmodels
 
-import android.util.Log
 import androidx.annotation.Keep
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,19 +27,24 @@ sealed interface AuthActionUIState {
     data class Success(val message: String) : AuthActionUIState
     data class Error(val message: String) : AuthActionUIState
     object Loading : AuthActionUIState
+    // ✅ FIX: Tambah Idle state agar lebih jelas kapan belum ada aksi
+    object Idle : AuthActionUIState
 }
 
 sealed interface AuthLogoutUIState {
     data class Success(val message: String) : AuthLogoutUIState
     data class Error(val message: String) : AuthLogoutUIState
     object Loading : AuthLogoutUIState
+    object Idle : AuthLogoutUIState
 }
 
+// ✅ FIX: Semua field menggunakan val, bukan var
+// var di dalam data class menyebabkan mutasi bypass StateFlow → crash / UI beku
 data class UIStateAuth(
     val auth: AuthUIState = AuthUIState.Loading,
-    var authRegister: AuthActionUIState = AuthActionUIState.Loading,
-    var authLogout: AuthLogoutUIState = AuthLogoutUIState.Loading,
-    var authRefreshToken: AuthActionUIState = AuthActionUIState.Loading,
+    val authRegister: AuthActionUIState = AuthActionUIState.Idle,
+    val authLogout: AuthLogoutUIState = AuthLogoutUIState.Idle,
+    val authRefreshToken: AuthActionUIState = AuthActionUIState.Idle,
 )
 
 @HiltViewModel
@@ -52,18 +56,20 @@ class AuthViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UIStateAuth())
     val uiState = _uiState.asStateFlow()
 
+    // ✅ FIX: Reset authRegister lewat ViewModel, bukan mutasi langsung dari UI
+    // Menggantikan: uiStateAuth.authRegister = AuthActionUIState.Loading
+    fun resetRegisterState() {
+        _uiState.update { it.copy(authRegister = AuthActionUIState.Idle) }
+    }
+
     fun register(
         name: String,
         username: String,
         password: String,
     ) {
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    authRegister = AuthActionUIState.Loading
-                )
-            }
-            _uiState.update { it ->
+            _uiState.update { it.copy(authRegister = AuthActionUIState.Loading) }
+            _uiState.update { currentState ->
                 val tmpState = runCatching {
                     repository.postRegister(
                         RequestAuthRegister(
@@ -84,10 +90,7 @@ class AuthViewModel @Inject constructor(
                         AuthActionUIState.Error(it.message ?: "Unknown error")
                     }
                 )
-
-                it.copy(
-                    authRegister = tmpState
-                )
+                currentState.copy(authRegister = tmpState)
             }
         }
     }
@@ -97,12 +100,8 @@ class AuthViewModel @Inject constructor(
         password: String,
     ) {
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    auth = AuthUIState.Loading
-                )
-            }
-            _uiState.update { it ->
+            _uiState.update { it.copy(auth = AuthUIState.Loading) }
+            _uiState.update { currentState ->
                 val tmpState = runCatching {
                     repository.postLogin(
                         RequestAuthLogin(
@@ -124,10 +123,7 @@ class AuthViewModel @Inject constructor(
                         AuthUIState.Error(it.message ?: "Unknown error")
                     }
                 )
-
-                it.copy(
-                    auth = tmpState
-                )
+                currentState.copy(auth = tmpState)
             }
         }
     }
@@ -136,36 +132,31 @@ class AuthViewModel @Inject constructor(
         authToken: String,
     ) {
         viewModelScope.launch {
+            // Hapus token lokal dulu agar app tidak bisa pakai token lama
             authTokenPref.clearAuthToken()
             authTokenPref.clearRefreshToken()
-            _uiState.update {
-                it.copy(
-                    authLogout = AuthLogoutUIState.Loading
-                )
-            }
-            _uiState.update { it ->
+
+            _uiState.update { it.copy(authLogout = AuthLogoutUIState.Loading) }
+            _uiState.update { currentState ->
                 val tmpState = runCatching {
                     repository.postLogout(
-                        RequestAuthLogout(
-                            authToken = authToken
-                        )
+                        RequestAuthLogout(authToken = authToken)
                     )
                 }.fold(
                     onSuccess = {
                         if (it.status == "success") {
                             AuthLogoutUIState.Success(it.message)
                         } else {
-                            AuthLogoutUIState.Error(it.message)
+                            // ✅ Tetap anggap sukses di sisi klien karena token lokal sudah dihapus
+                            AuthLogoutUIState.Success(it.message)
                         }
                     },
                     onFailure = {
-                        AuthLogoutUIState.Error(it.message ?: "Unknown error")
+                        // ✅ Tetap sukses di sisi klien karena token lokal sudah dihapus
+                        AuthLogoutUIState.Success("Logged out")
                     }
                 )
-
-                it.copy(
-                    authLogout = tmpState
-                )
+                currentState.copy(authLogout = tmpState)
             }
         }
     }
@@ -181,7 +172,7 @@ class AuthViewModel @Inject constructor(
                     authRefreshToken = AuthActionUIState.Loading
                 )
             }
-            _uiState.update { it ->
+            _uiState.update { currentState ->
                 var tmpStateAuth: AuthUIState = AuthUIState.Loading
                 var tmpStateAuthRefreshToken: AuthActionUIState = AuthActionUIState.Loading
 
@@ -194,8 +185,8 @@ class AuthViewModel @Inject constructor(
                     )
                 }.fold(
                     onSuccess = {
-                        if (it.status == "success") {
-                            authTokenPref.saveAuthToken(it.data!!.authToken)
+                        if (it.status == "success" && it.data != null) {
+                            authTokenPref.saveAuthToken(it.data.authToken)
                             authTokenPref.saveRefreshToken(it.data.refreshToken)
                             tmpStateAuth = AuthUIState.Success(it.data)
                             tmpStateAuthRefreshToken = AuthActionUIState.Success(it.message)
@@ -210,7 +201,7 @@ class AuthViewModel @Inject constructor(
                     }
                 )
 
-                it.copy(
+                currentState.copy(
                     auth = tmpStateAuth,
                     authRefreshToken = tmpStateAuthRefreshToken
                 )
@@ -220,16 +211,12 @@ class AuthViewModel @Inject constructor(
 
     fun loadTokenFromPreferences() {
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    auth = AuthUIState.Loading
-                )
-            }
+            _uiState.update { it.copy(auth = AuthUIState.Loading) }
 
             val authToken = authTokenPref.getAuthToken()
             val refreshToken = authTokenPref.getRefreshToken()
 
-            _uiState.update {
+            _uiState.update { currentState ->
                 val loginState = if (authToken.isNullOrEmpty() || refreshToken.isNullOrEmpty()) {
                     AuthUIState.Error("Token tidak tersedia")
                 } else {
@@ -240,10 +227,7 @@ class AuthViewModel @Inject constructor(
                         )
                     )
                 }
-
-                it.copy(
-                    auth = loginState
-                )
+                currentState.copy(auth = loginState)
             }
         }
     }

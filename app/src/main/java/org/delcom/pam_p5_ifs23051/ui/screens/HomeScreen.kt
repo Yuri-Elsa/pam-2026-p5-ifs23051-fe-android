@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import org.delcom.pam_p5_ifs23051.helper.ConstHelper
 import org.delcom.pam_p5_ifs23051.helper.RouteHelper
@@ -46,13 +47,12 @@ fun HomeScreen(
     authToken: String,
     todoViewModel: TodoViewModel,
 ) {
-    // ── Determine whether the user is authenticated ────────────────────────
     val isAuthenticated = authToken.isNotBlank()
 
     val uiState by todoViewModel.uiState.collectAsState()
     val homeTodosState by todoViewModel.homeTodosState.collectAsState()
 
-    // ── Stats (only when logged in) ────────────────────────────────────────
+    // ── Stats ──────────────────────────────────────────────────────────────
     LaunchedEffect(authToken) {
         if (isAuthenticated) todoViewModel.getStats(authToken)
     }
@@ -60,12 +60,18 @@ fun HomeScreen(
     val stats = (uiState.stats as? StatsUIState.Success)?.data
     val isStatsLoading = uiState.stats is StatsUIState.Loading
 
-    // ── Todos infinite scroll (only when logged in) ────────────────────────
-    var currentPage by remember { mutableStateOf(1) }
+    // ── Infinite scroll state ──────────────────────────────────────────────
+    // ✅ FIX: Pisahkan "nextPage yang akan di-fetch" dari "currentPage yang sudah di-fetch"
+    // Sebelumnya currentPage++ dilakukan di dalam LaunchedEffect(homeTodosState) yang
+    // bisa dipanggil ulang akibat recomposition → halaman yang sama di-fetch 2x → duplicate key crash
+    var nextPageToLoad by remember { mutableStateOf(1) }
     var allTodos by remember { mutableStateOf<List<ResponseTodoData>>(emptyList()) }
     var hasNextPage by remember { mutableStateOf(false) }
     var isLoadingMore by remember { mutableStateOf(false) }
     var isFirstLoad by remember { mutableStateOf(true) }
+
+    // ✅ FIX: Gunakan Set untuk melacak ID yang sudah ada, cegah duplicate
+    val loadedIds = remember { mutableSetOf<String>() }
 
     val listState = rememberLazyListState()
 
@@ -76,8 +82,9 @@ fun HomeScreen(
     }
 
     fun resetAndLoad() {
-        currentPage = 1
+        nextPageToLoad = 1
         allTodos = emptyList()
+        loadedIds.clear()
         hasNextPage = false
         isLoadingMore = false
         isFirstLoad = true
@@ -102,13 +109,24 @@ fun HomeScreen(
     LaunchedEffect(homeTodosState) {
         when (val state = homeTodosState) {
             is HomeTodosUIState.Success -> {
+                // ✅ FIX: Filter item yang sudah ada sebelum menambahkan ke list
+                // Ini mencegah IllegalArgumentException "Key was already used" di LazyColumn
+                val newItems = state.data.filter { it.id !in loadedIds }
+                loadedIds.addAll(newItems.map { it.id })
+
                 if (isFirstLoad) {
-                    allTodos = state.data
+                    allTodos = newItems
                     isFirstLoad = false
                 } else {
-                    allTodos = allTodos + state.data
-                    currentPage++
+                    allTodos = allTodos + newItems
                 }
+
+                // ✅ FIX: Increment nextPageToLoad di sini (bukan di trigger scroll)
+                // agar tidak ada race condition antara "sudah fetch" vs "belum fetch"
+                if (newItems.isNotEmpty() || state.pagination.hasNextPage) {
+                    nextPageToLoad = state.pagination.currentPage + 1
+                }
+
                 hasNextPage = state.pagination.hasNextPage
                 isLoadingMore = false
             }
@@ -116,11 +134,12 @@ fun HomeScreen(
                 isLoadingMore = false
                 isFirstLoad = false
             }
-            is HomeTodosUIState.Loading -> {}
+            is HomeTodosUIState.Loading -> { /* ditangani oleh isFirstLoad & isLoadingMore */ }
         }
     }
 
-    // Infinite scroll trigger
+    // ✅ FIX: Infinite scroll trigger yang aman
+    // Gunakan filter untuk memastikan hanya trigger saat benar-benar near end
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo }
             .map { layoutInfo ->
@@ -129,10 +148,12 @@ fun HomeScreen(
                 totalItems > 0 && lastVisible >= totalItems - 3
             }
             .distinctUntilChanged()
-            .collect { nearEnd ->
-                if (nearEnd && !isLoadingMore && hasNextPage && isAuthenticated) {
+            .filter { it } // ✅ Hanya emit saat true (near end)
+            .collect {
+                // ✅ FIX: Cek isLoadingMore dan hasNextPage sebelum fetch
+                if (!isLoadingMore && hasNextPage && isAuthenticated) {
                     isLoadingMore = true
-                    loadPage(currentPage + 1)
+                    loadPage(nextPageToLoad)
                 }
             }
     }
@@ -155,10 +176,8 @@ fun HomeScreen(
                     FloatingActionButton(
                         onClick = {
                             if (isAuthenticated) {
-                                // Logged in → go to add screen
                                 RouteHelper.to(navController, ConstHelper.RouteNames.TodosAdd.path)
                             } else {
-                                // Not logged in → redirect to login
                                 RouteHelper.to(
                                     navController,
                                     ConstHelper.RouteNames.AuthLogin.path,
@@ -180,7 +199,7 @@ fun HomeScreen(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     // ── Banner ─────────────────────────────────────────────
-                    item {
+                    item(key = "banner") {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -215,7 +234,7 @@ fun HomeScreen(
 
                     // ── Not logged in banner ───────────────────────────────
                     if (!isAuthenticated) {
-                        item {
+                        item(key = "not_auth_banner") {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -254,8 +273,8 @@ fun HomeScreen(
                         return@LazyColumn
                     }
 
-                    // ── Stats ──────────────────────────────────────────────
-                    item {
+                    // ── Stats header ───────────────────────────────────────
+                    item(key = "stats_header") {
                         Text(
                             text = "Statistik Todo",
                             style = MaterialTheme.typography.titleMedium,
@@ -265,7 +284,7 @@ fun HomeScreen(
                         )
                     }
 
-                    item {
+                    item(key = "stats_row") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -300,7 +319,7 @@ fun HomeScreen(
                     }
 
                     // ── Todos header ───────────────────────────────────────
-                    item {
+                    item(key = "todos_header") {
                         Spacer(Modifier.height(12.dp))
                         Text(
                             text = "Daftar Todo",
@@ -311,17 +330,22 @@ fun HomeScreen(
                         )
                     }
 
+                    // ── Todos list ─────────────────────────────────────────
                     if (isFirstLoad && homeTodosState is HomeTodosUIState.Loading) {
-                        item {
+                        item(key = "loading_initial") {
                             Box(
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
                                 contentAlignment = Alignment.Center
                             ) { CircularProgressIndicator() }
                         }
                     } else if (allTodos.isEmpty()) {
-                        item {
+                        item(key = "empty_state") {
                             Box(
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -331,7 +355,12 @@ fun HomeScreen(
                             }
                         }
                     } else {
-                        itemsIndexed(items = allTodos, key = { _, todo -> todo.id }) { _, todo ->
+                        // ✅ FIX: key = { _, todo -> todo.id } sudah benar,
+                        // tapi sekarang dijamin unik karena loadedIds filter duplikat di atas
+                        itemsIndexed(
+                            items = allTodos,
+                            key = { _, todo -> todo.id }
+                        ) { _, todo ->
                             TodoItemUI(
                                 todo = todo,
                                 onClick = {
@@ -347,9 +376,11 @@ fun HomeScreen(
                         }
 
                         if (isLoadingMore) {
-                            item {
+                            item(key = "loading_more") {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
@@ -381,7 +412,9 @@ private fun StatCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {

@@ -30,6 +30,8 @@ fun TodoItemUI(
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+
+            // ── Baris judul + tombol hapus ─────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -56,6 +58,7 @@ fun TodoItemUI(
 
             Spacer(Modifier.height(4.dp))
 
+            // ── Deskripsi ──────────────────────────────────────────────────
             Text(
                 text = todo.description,
                 style = MaterialTheme.typography.bodySmall,
@@ -66,17 +69,20 @@ fun TodoItemUI(
 
             Spacer(Modifier.height(10.dp))
 
+            // ── Baris bawah: status (kiri) + urgency badge (kanan) ─────────
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween  // ✅ status kiri, urgency kanan
             ) {
-                // Status badge
+                // Status badge — kiri
                 val statusBg = if (todo.isDone)
                     MaterialTheme.colorScheme.primaryContainer
                 else
                     MaterialTheme.colorScheme.surfaceVariant
 
                 val statusText = if (todo.isDone) "Selesai" else "Belum Selesai"
+
                 val statusColor = if (todo.isDone)
                     MaterialTheme.colorScheme.onPrimaryContainer
                 else
@@ -91,12 +97,10 @@ fun TodoItemUI(
                     )
                 }
 
-                // FIX: Urgency badge hanya ditampilkan jika urgency tidak null.
-                // Gson tidak menerapkan Kotlin default values saat deserialisasi,
-                // sehingga field yang tidak ada di JSON akan menjadi null.
-                if (todo.urgency != null) {
-                    UrgencyBadge(urgency = todo.urgency)
-                }
+                // ✅ FIX: Urgency badge — kanan
+                // Sebelumnya: hanya tampil jika urgency != null (medium sering tidak muncul)
+                // Sekarang: fallback ke "medium" jika null, sehingga label SELALU tampil
+                UrgencyBadge(urgency = todo.urgency ?: "medium")
             }
         }
     }

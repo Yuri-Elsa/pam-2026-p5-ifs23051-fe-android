@@ -1,6 +1,5 @@
 package org.delcom.pam_p5_ifs23051.ui.screens.todos
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -32,7 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,7 +66,6 @@ import org.delcom.pam_p5_ifs23051.ui.viewmodels.AuthViewModel
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoActionUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoUIState
 import org.delcom.pam_p5_ifs23051.ui.viewmodels.TodoViewModel
-import kotlin.time.Clock
 
 @Composable
 fun TodosDetailScreen(
@@ -81,15 +78,21 @@ fun TodosDetailScreen(
     val uiStateTodo by todoViewModel.uiState.collectAsState()
     val uiStateAuth by authViewModel.uiState.collectAsState()
 
-    var isLoading by remember { mutableStateOf(false) }
+    // ✅ FIX: Simpan authToken sebagai String biasa, bukan MutableState<String?>
+    // Hindari force unwrap (authToken.value!!) yang menyebabkan NPE
+    val authToken = remember(uiStateAuth.auth) {
+        (uiStateAuth.auth as? AuthUIState.Success)?.data?.authToken
+    }
+
+    var isLoading by remember { mutableStateOf(true) }
     var isConfirmDelete by remember { mutableStateOf(false) }
 
-    var todo by remember { mutableStateOf<ResponseTodoData?>(null) }
-    val authToken = remember { mutableStateOf<String?>(null) }
+    // ✅ FIX: Ambil data todo dari StateFlow, bukan dari var lokal yang dimutasi
+    val todo = (uiStateTodo.todo as? TodoUIState.Success)?.data
 
+    // ✅ FIX: Gunakan resetTodoDetailState() dari ViewModel, bukan mutasi langsung
+    // Menggantikan: uiStateTodo.todoDelete = ... uiStateTodo.todo = ...
     LaunchedEffect(Unit) {
-        isLoading = true
-
         if (uiStateAuth.auth !is AuthUIState.Success) {
             RouteHelper.to(
                 navController,
@@ -99,71 +102,75 @@ fun TodosDetailScreen(
             return@LaunchedEffect
         }
 
-        authToken.value = (uiStateAuth.auth as AuthUIState.Success).data.authToken
+        // Reset state detail screen lewat ViewModel (bukan mutasi langsung)
+        todoViewModel.resetTodoDetailState()
 
-        uiStateTodo.todoDelete = TodoActionUIState.Loading
-        uiStateTodo.todoChangeCover = TodoActionUIState.Loading
-        uiStateTodo.todo = TodoUIState.Loading
-
-        todoViewModel.getTodoById(authToken.value!!, todoId)
+        val token = authToken ?: run {
+            RouteHelper.back(navController)
+            return@LaunchedEffect
+        }
+        todoViewModel.getTodoById(token, todoId)
     }
 
+    // Observe perubahan todo state
     LaunchedEffect(uiStateTodo.todo) {
-        if (uiStateTodo.todo !is TodoUIState.Loading) {
-            if (uiStateTodo.todo is TodoUIState.Success) {
-                todo = (uiStateTodo.todo as TodoUIState.Success).data
+        when (uiStateTodo.todo) {
+            is TodoUIState.Success -> isLoading = false
+            is TodoUIState.Error -> {
                 isLoading = false
-            } else {
                 RouteHelper.back(navController)
             }
+            is TodoUIState.Loading -> isLoading = true
         }
     }
 
+    // ✅ FIX: Gunakan safe call (?.) bukan force unwrap (!!)
     fun onDelete() {
-        if (authToken.value == null) return
-        uiStateTodo.todoDelete = TodoActionUIState.Loading
+        val token = authToken ?: return
         isLoading = true
-        todoViewModel.deleteTodo(authToken.value!!, todoId)
+        todoViewModel.deleteTodo(token, todoId)
     }
 
     LaunchedEffect(uiStateTodo.todoDelete) {
         when (val state = uiStateTodo.todoDelete) {
             is TodoActionUIState.Success -> {
                 SuspendHelper.showSnackBar(snackbarHost, SnackBarType.SUCCESS, state.message)
+                todoViewModel.resetTodoDeleteState()
                 RouteHelper.to(navController, ConstHelper.RouteNames.Todos.path, true)
-                uiStateTodo.todo = TodoUIState.Loading
-                isLoading = false
             }
             is TodoActionUIState.Error -> {
                 SuspendHelper.showSnackBar(snackbarHost, SnackBarType.ERROR, state.message)
                 isLoading = false
             }
-            else -> {}
+            is TodoActionUIState.Loading -> isLoading = true
+            is TodoActionUIState.Idle -> { /* tidak ada aksi */ }
         }
     }
 
-    // ── Cover change now takes a pre-built MultipartBody.Part (compressed) ──
+    // ✅ FIX: Gunakan safe call, hapus kotlin.time.Clock yang eksperimental
     fun onChangeCover(part: MultipartBody.Part) {
-        if (authToken.value == null) return
-        uiStateTodo.todoChangeCover = TodoActionUIState.Loading
+        val token = authToken ?: return
         isLoading = true
-        todoViewModel.putTodoCover(authToken.value!!, todoId, part)
+        todoViewModel.putTodoCover(token, todoId, part)
     }
 
     LaunchedEffect(uiStateTodo.todoChangeCover) {
         when (val state = uiStateTodo.todoChangeCover) {
             is TodoActionUIState.Success -> {
-                if (todo != null) {
-                    todo!!.updatedAt = Clock.System.now().toString()
-                }
                 SuspendHelper.showSnackBar(snackbarHost, SnackBarType.SUCCESS, state.message)
+                // ✅ FIX: Reload todo dari server agar cover terbaru tampil
+                // Menggantikan: todo!!.updatedAt = Clock.System.now().toString()
+                authToken?.let { token ->
+                    todoViewModel.getTodoById(token, todoId)
+                }
                 isLoading = false
             }
             is TodoActionUIState.Error -> {
                 SuspendHelper.showSnackBar(snackbarHost, SnackBarType.ERROR, state.message)
                 isLoading = false
             }
-            else -> {}
+            is TodoActionUIState.Loading -> { /* isLoading sudah di-set di onChangeCover */ }
+            is TodoActionUIState.Idle -> { /* tidak ada aksi */ }
         }
     }
 
@@ -180,7 +187,7 @@ fun TodosDetailScreen(
             onClick = {
                 RouteHelper.to(
                     navController,
-                    ConstHelper.RouteNames.TodosEdit.path.replace("{todoId}", todo!!.id),
+                    ConstHelper.RouteNames.TodosEdit.path.replace("{todoId}", todo.id),
                 )
             }
         ),
@@ -199,13 +206,13 @@ fun TodosDetailScreen(
     ) {
         TopAppBarComponent(
             navController = navController,
-            title = todo!!.title,
+            title = todo.title,
             showBackButton = true,
             customMenuItems = detailMenuItems
         )
         Box(modifier = Modifier.weight(1f)) {
             TodosDetailUI(
-                todo = todo!!,
+                todo = todo,
                 onChangeCover = ::onChangeCover,
             )
             BottomDialog(
@@ -227,7 +234,6 @@ fun TodosDetailScreen(
 @Composable
 fun TodosDetailUI(
     todo: ResponseTodoData,
-    // ✅ Now receives a pre-built compressed part
     onChangeCover: (part: MultipartBody.Part) -> Unit,
 ) {
     var dataFile by remember { mutableStateOf<Uri?>(null) }
@@ -268,6 +274,8 @@ fun TodosDetailUI(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    // ✅ FIX: Gunakan key berbasis ID + updatedAt untuk cache busting yang benar
+                    // Tidak lagi bergantung pada mutasi todo.updatedAt secara langsung
                     AsyncImage(
                         model = dataFile ?: ToolsHelper.getTodoImage(todo.id, todo.updatedAt),
                         contentDescription = "Cover Todo",
@@ -289,7 +297,6 @@ fun TodosDetailUI(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // ✅ Compress on save — not on pick
                 if (dataFile != null) {
                     Button(
                         onClick = {
@@ -297,6 +304,8 @@ fun TodosDetailUI(
                                 context, dataFile!!, "file"
                             )
                             onChangeCover(part)
+                            // ✅ Reset pilihan file setelah upload dimulai
+                            dataFile = null
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -363,7 +372,9 @@ fun TodosDetailUI(
             elevation = CardDefaults.cardElevation(4.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)) {
                 Text(
                     text = todo.description,
                     style = MaterialTheme.typography.bodyMedium,

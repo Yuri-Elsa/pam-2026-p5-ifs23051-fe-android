@@ -64,20 +64,22 @@ sealed interface HomeTodosUIState {
     object Loading : HomeTodosUIState
 }
 
+// ✅ FIX: Semua field menggunakan val, bukan var
+// Mutasi langsung pada var di data class mem-bypass StateFlow dan menyebabkan
+// Compose tidak mendeteksi perubahan → UI beku / crash
 data class UIStateTodo(
     val profile: ProfileUIState = ProfileUIState.Loading,
     val stats: StatsUIState = StatsUIState.Loading,
     val todos: TodosUIState = TodosUIState.Loading,
-    var todo: TodoUIState = TodoUIState.Loading,
-    var todoAdd: TodoActionUIState = TodoActionUIState.Idle,
-    var todoChange: TodoActionUIState = TodoActionUIState.Idle,
-    var todoDelete: TodoActionUIState = TodoActionUIState.Idle,
-    var todoChangeCover: TodoActionUIState = TodoActionUIState.Loading,
-    // FIX: was Loading — caused profile edit buttons to always show spinner
-    var profileUpdate: TodoActionUIState = TodoActionUIState.Idle,
-    var profilePassword: TodoActionUIState = TodoActionUIState.Idle,
-    var profileAbout: TodoActionUIState = TodoActionUIState.Idle,
-    var profilePhoto: TodoActionUIState = TodoActionUIState.Idle,
+    val todo: TodoUIState = TodoUIState.Loading,
+    val todoAdd: TodoActionUIState = TodoActionUIState.Idle,
+    val todoChange: TodoActionUIState = TodoActionUIState.Idle,
+    val todoDelete: TodoActionUIState = TodoActionUIState.Idle,
+    val todoChangeCover: TodoActionUIState = TodoActionUIState.Idle,
+    val profileUpdate: TodoActionUIState = TodoActionUIState.Idle,
+    val profilePassword: TodoActionUIState = TodoActionUIState.Idle,
+    val profileAbout: TodoActionUIState = TodoActionUIState.Idle,
+    val profilePhoto: TodoActionUIState = TodoActionUIState.Idle,
 )
 
 @HiltViewModel
@@ -91,6 +93,18 @@ class TodoViewModel @Inject constructor(
     // Dedicated state for HomeScreen - isolated from uiState to prevent race condition
     private val _homeTodosState = MutableStateFlow<HomeTodosUIState>(HomeTodosUIState.Loading)
     val homeTodosState = _homeTodosState.asStateFlow()
+
+    // ✅ FIX: Fungsi reset yang proper untuk TodosDetailScreen
+    // Menggantikan pola mutasi langsung: uiStateTodo.todo = TodoUIState.Loading
+    fun resetTodoDetailState() {
+        _uiState.update {
+            it.copy(
+                todo = TodoUIState.Loading,
+                todoDelete = TodoActionUIState.Idle,
+                todoChangeCover = TodoActionUIState.Idle,
+            )
+        }
+    }
 
     fun getHomeTodos(authToken: String, page: Int = 1, perPage: Int = 10) {
         viewModelScope.launch {
