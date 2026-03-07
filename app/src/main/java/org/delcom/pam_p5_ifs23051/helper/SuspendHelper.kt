@@ -3,6 +3,7 @@ package org.delcom.pam_p5_ifs23051.helper
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -17,7 +18,7 @@ object SuspendHelper {
         WARNING(title = "warning")
     }
 
-    suspend fun showSnackBar(snackbarHost: SnackbarHostState, type: SnackBarType,  message: String){
+    suspend fun showSnackBar(snackbarHost: SnackbarHostState, type: SnackBarType, message: String) {
         coroutineScope {
             launch {
                 snackbarHost.showSnackbar(
@@ -38,12 +39,10 @@ object SuspendHelper {
         return try {
             apiCall()
         } catch (e: HttpException) {
-            val errorResponse = e.response()?.errorBody()?.string()
-            val jsonError = Gson().fromJson(errorResponse, ResponseMessage::class.java)
-
+            val errorMessage = parseHttpErrorMessage(e)
             ResponseMessage(
                 status = "error",
-                message = jsonError?.message ?: "Server error"
+                message = errorMessage
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -51,6 +50,26 @@ object SuspendHelper {
                 status = "error",
                 message = e.message ?: "Unknown error"
             )
+        }
+    }
+
+    private fun parseHttpErrorMessage(e: HttpException): String {
+        return try {
+            val errorBody = e.response()?.errorBody()?.string()
+
+            if (errorBody.isNullOrBlank()) {
+                return "Server error (${e.code()})"
+            }
+
+            // Coba parse sebagai JSON
+            val jsonError = Gson().fromJson(errorBody, ResponseMessage::class.java)
+            jsonError?.message ?: "Server error (${e.code()})"
+
+        } catch (jsonEx: JsonSyntaxException) {
+            // Server return bukan JSON (HTML, plain text, dll)
+            "Server error (${e.code()})"
+        } catch (ex: Exception) {
+            "Server error (${e.code()})"
         }
     }
 }
